@@ -1,11 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, Tag, FileText, Sparkles, BrainCircuit, Edit2, Trash2, Save, RotateCcw, PlayCircle, ExternalLink } from 'lucide-react';
-import { analyzeNode, updateNode, deleteNode } from '../api';
+import { X, Calendar, Tag, FileText, Sparkles, BrainCircuit, Edit2, Trash2, Save, RotateCcw, PlayCircle, ExternalLink, Box, Layers, Palette, Wand2, GitFork, ArrowUpCircle, MessageSquare } from 'lucide-react';
+import { analyzeNode, updateNode, deleteNode, getContext, rewriteNode, expandNode } from '../api';
 
-const NodeInspector = ({ node, onClose, onRefresh }) => {
+const NodeInspector = ({ node, onClose, onRefresh, onViewDocument }) => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isRewriting, setIsRewriting] = useState(false);
+  const [isExpandingDown, setIsExpandingDown] = useState(false);
+  const [isExpandingUp, setIsExpandingUp] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
+  const [registry, setRegistry] = useState(null);
+
+  // Load Context for Dropdowns
+  useEffect(() => {
+    const fetchContext = async () => {
+        try {
+            const data = await getContext();
+            setRegistry(data);
+        } catch (error) {
+            console.error("Failed to load registry:", error);
+        }
+    };
+    if (isEditing) fetchContext();
+  }, [isEditing]);
 
   useEffect(() => {
     if (node) {
@@ -13,6 +30,9 @@ const NodeInspector = ({ node, onClose, onRefresh }) => {
             title: node.title || node.label || node.id,
             summary: node.summary || '',
             module: node.module || 'General',
+            main_topic: node.main_topic || 'Uncategorized',
+            node_type: node.node_type || 'child',
+            color: node.color || '', // Manual override
             tags: (node.tags || []).join(', '),
             content: node.content || ''
         });
@@ -35,6 +55,36 @@ const NodeInspector = ({ node, onClose, onRefresh }) => {
     } finally {
         setIsAnalyzing(false);
     }
+  };
+
+  const handleRewrite = async () => {
+      setIsRewriting(true);
+      try {
+          await rewriteNode(node.id);
+          if (onRefresh) onRefresh();
+      } catch (error) {
+          console.error("Rewrite failed:", error);
+          alert("Failed to rewrite node: " + error.message);
+      } finally {
+          setIsRewriting(false);
+      }
+  };
+
+  const handleExpand = async (direction) => {
+      if (direction === "down") setIsExpandingDown(true);
+      else setIsExpandingUp(true);
+
+      try {
+          await expandNode(node.id, direction);
+          if (onRefresh) onRefresh();
+          alert(direction === "down" ? "Node broken down into sub-components!" : "Node abstracted into parent concept!");
+      } catch (error) {
+          console.error("Expansion failed:", error);
+          alert("Failed to expand node: " + error.message);
+      } finally {
+          if (direction === "down") setIsExpandingDown(false);
+          else setIsExpandingUp(false);
+      }
   };
 
   const handleDelete = async () => {
@@ -65,8 +115,15 @@ const NodeInspector = ({ node, onClose, onRefresh }) => {
     }
   };
 
+  const nodeTypeOptions = [
+      { value: 'topic', label: 'Topic (Level 0)' },
+      { value: 'module', label: 'Module (Level 1)' },
+      { value: 'parent', label: 'Parent Node (Level 2)' },
+      { value: 'child', label: 'Child Node (Level 3)' },
+  ];
+
   return (
-    <div className="absolute top-4 right-4 z-40 w-96 max-h-[90vh] bg-gray-800 border border-gray-600 rounded-lg shadow-2xl flex flex-col overflow-hidden backdrop-blur-md bg-opacity-95">
+    <div className="absolute top-4 right-4 z-40 w-96 max-h-[90vh] bg-[#1C1C1E] border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden backdrop-blur-md bg-opacity-95 text-gray-200">
       {/* Header */}
       {(isVideo || hasThumbnail) && !isEditing ? (
           <div className="relative h-48 w-full shrink-0 group/video">
@@ -115,37 +172,52 @@ const NodeInspector = ({ node, onClose, onRefresh }) => {
                       <span className="text-xs text-blue-300 font-mono uppercase px-1 bg-blue-900/40 rounded border border-blue-500/30">
                           {isVideo ? 'VIDEO' : (node.type || 'WEB')}
                       </span>
-                      {node.module && (
-                          <span className="text-xs text-gray-300 font-medium px-1.5 py-0.5 rounded bg-gray-800/60 border border-gray-600/50">
-                              {node.module}
-                          </span>
-                      )}
+                      <span className={`text-xs text-gray-900 font-bold px-1.5 py-0.5 rounded border border-white/20 uppercase ${
+                          node.node_type === 'topic' ? 'bg-yellow-400' :
+                          node.node_type === 'module' ? 'bg-orange-400' :
+                          node.node_type === 'parent' ? 'bg-blue-400' :
+                          'bg-gray-300'
+                      }`}>
+                          {node.node_type || 'Child'}
+                      </span>
                   </div>
               </div>
           </div>
       ) : (
-          <div className="bg-gray-900 p-4 border-b border-gray-700 flex justify-between items-start shrink-0">
+          <div className="bg-[#151517] p-4 border-b border-white/10 flex justify-between items-start shrink-0">
             <div className="flex-1 min-w-0 mr-4">
               <h2 className="text-lg font-bold text-white break-words truncate" title={node.id}>
                  {isEditing ? 'Editing Node' : (node.title || node.label || node.id)}
               </h2>
-              <span className="text-xs text-blue-400 font-mono uppercase px-1 bg-blue-900/30 rounded border border-blue-800 mt-1 inline-block">
-                {node.type || 'Node'}
-              </span>
+              <div className="flex gap-2 mt-1">
+                <span className="text-xs text-blue-400 font-mono uppercase px-1 bg-blue-900/30 rounded border border-blue-800/50 inline-block">
+                    {node.type || 'Node'}
+                </span>
+                {!isEditing && (
+                    <span className={`text-xs text-gray-900 font-bold px-1.5 rounded border border-white/20 uppercase flex items-center ${
+                        (node.node_type === 'topic') ? 'bg-yellow-400' :
+                        (node.node_type === 'module') ? 'bg-orange-400' :
+                        (node.node_type === 'parent') ? 'bg-blue-400' :
+                        'bg-gray-400'
+                    }`}>
+                        {node.node_type || 'Child'}
+                    </span>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-1">
               {!isEditing && (
                   <>
                     <button 
                       onClick={() => setIsEditing(true)}
-                      className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-blue-400 transition-colors"
+                      className="p-1.5 hover:bg-white/10 rounded text-gray-400 hover:text-blue-400 transition-colors"
                       title="Edit"
                     >
                       <Edit2 className="w-4 h-4" />
                     </button>
                     <button 
                       onClick={handleDelete}
-                      className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-red-400 transition-colors"
+                      className="p-1.5 hover:bg-white/10 rounded text-gray-400 hover:text-red-400 transition-colors"
                       title="Delete"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -155,7 +227,7 @@ const NodeInspector = ({ node, onClose, onRefresh }) => {
               )}
               <button 
                 onClick={onClose}
-                className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white transition-colors"
+                className="p-1.5 hover:bg-white/10 rounded text-gray-400 hover:text-white transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -175,25 +247,104 @@ const NodeInspector = ({ node, onClose, onRefresh }) => {
                         type="text" 
                         value={editForm.title}
                         onChange={(e) => setEditForm({...editForm, title: e.target.value})}
-                        className="w-full bg-black/30 border border-gray-600 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 outline-none"
+                        className="w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 outline-none"
                     />
                 </div>
-                <div>
-                    <label className="text-xs text-gray-500 uppercase font-bold block mb-1">Module</label>
-                    <input 
-                        type="text" 
-                        value={editForm.module}
-                        onChange={(e) => setEditForm({...editForm, module: e.target.value})}
-                        className="w-full bg-black/30 border border-gray-600 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 outline-none"
-                    />
+
+                <div className="flex gap-2">
+                    <div className="flex-1">
+                        <label className="text-xs text-gray-500 uppercase font-bold block mb-1">Node Type</label>
+                        <select 
+                            value={editForm.node_type}
+                            onChange={(e) => setEditForm({...editForm, node_type: e.target.value})}
+                            className="w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 outline-none appearance-none"
+                        >
+                            {nodeTypeOptions.map(opt => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="w-1/3">
+                        <label className="text-xs text-gray-500 uppercase font-bold block mb-1">Color Override</label>
+                        <div className="flex items-center gap-2">
+                            <input 
+                                type="color" 
+                                value={editForm.color || '#000000'}
+                                onChange={(e) => setEditForm({...editForm, color: e.target.value})}
+                                className="h-8 w-8 rounded cursor-pointer bg-transparent border-0 p-0"
+                            />
+                            {editForm.color && (
+                                <button 
+                                    onClick={() => setEditForm({...editForm, color: ''})}
+                                    className="text-xs text-gray-400 hover:text-white underline"
+                                >
+                                    Reset
+                                </button>
+                            )}
+                        </div>
+                    </div>
                 </div>
+
+                <div className="flex gap-2">
+                    <div className="flex-1">
+                         <label className="text-xs text-gray-500 uppercase font-bold block mb-1">Main Topic</label>
+                         {/* Topic Dropdown */}
+                         {registry ? (
+                             <select 
+                                value={editForm.main_topic}
+                                onChange={(e) => {
+                                    setEditForm({
+                                        ...editForm, 
+                                        main_topic: e.target.value,
+                                        module: '' // Reset module
+                                    });
+                                }}
+                                className="w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 outline-none appearance-none"
+                             >
+                                <option value="">Select Topic...</option>
+                                {Object.keys(registry.topics).map(topic => (
+                                    <option key={topic} value={topic}>{topic}</option>
+                                ))}
+                                <option value="new">+ Create New...</option>
+                             </select>
+                         ) : (
+                            <div className="text-xs text-gray-500">Loading...</div>
+                         )}
+                    </div>
+                    
+                    <div className="flex-1">
+                        <label className="text-xs text-gray-500 uppercase font-bold block mb-1">Module</label>
+                         {registry && editForm.main_topic && registry.topics[editForm.main_topic] ? (
+                             <select 
+                                value={editForm.module}
+                                onChange={(e) => setEditForm({...editForm, module: e.target.value})}
+                                className="w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 outline-none appearance-none"
+                             >
+                                <option value="">Select Module...</option>
+                                <option value="General">General</option>
+                                {Object.keys(registry.topics[editForm.main_topic].modules || {}).map(mod => (
+                                    <option key={mod} value={mod}>{mod}</option>
+                                ))}
+                             </select>
+                         ) : (
+                            <input 
+                                type="text" 
+                                value={editForm.module}
+                                onChange={(e) => setEditForm({...editForm, module: e.target.value})}
+                                className="w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 outline-none"
+                                placeholder="Module Name"
+                            />
+                         )}
+                    </div>
+                </div>
+
                 <div>
-                    <label className="text-xs text-gray-500 uppercase font-bold block mb-1">Tags (comma separated)</label>
+                    <label className="text-xs text-gray-500 uppercase font-bold block mb-1">Tags</label>
                     <input 
                         type="text" 
                         value={editForm.tags}
                         onChange={(e) => setEditForm({...editForm, tags: e.target.value})}
-                        className="w-full bg-black/30 border border-gray-600 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 outline-none"
+                        className="w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 outline-none"
                     />
                 </div>
                 <div>
@@ -201,15 +352,7 @@ const NodeInspector = ({ node, onClose, onRefresh }) => {
                     <textarea 
                         value={editForm.summary}
                         onChange={(e) => setEditForm({...editForm, summary: e.target.value})}
-                        className="w-full h-24 bg-black/30 border border-gray-600 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 outline-none resize-none"
-                    />
-                </div>
-                <div>
-                    <label className="text-xs text-gray-500 uppercase font-bold block mb-1">Content</label>
-                    <textarea 
-                        value={editForm.content}
-                        onChange={(e) => setEditForm({...editForm, content: e.target.value})}
-                        className="w-full h-48 bg-black/30 border border-gray-600 rounded px-2 py-1.5 text-xs font-mono text-gray-300 focus:border-blue-500 outline-none"
+                        className="w-full h-24 bg-black/30 border border-white/10 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 outline-none resize-none"
                     />
                 </div>
                 
@@ -222,7 +365,7 @@ const NodeInspector = ({ node, onClose, onRefresh }) => {
                     </button>
                     <button 
                         onClick={() => setIsEditing(false)}
-                        className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded text-sm font-semibold flex items-center justify-center gap-2"
+                        className="flex-1 bg-white/10 hover:bg-white/20 text-white py-2 rounded text-sm font-semibold flex items-center justify-center gap-2"
                     >
                         <RotateCcw className="w-4 h-4" /> Cancel
                     </button>
@@ -231,74 +374,129 @@ const NodeInspector = ({ node, onClose, onRefresh }) => {
         ) : (
             /* VIEW MODE */
             <>
-                {/* AI Analysis Section */}
+                {/* AI Expansion Section */}
                 <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-2 text-purple-400 text-sm font-semibold">
-                            <Sparkles className="w-4 h-4" />
-                            AI Metadata
-                        </div>
+                    <div className="flex items-center gap-2 text-purple-400 text-sm font-semibold border-b border-white/10 pb-2">
+                        <Sparkles className="w-4 h-4" />
+                        AI Actions
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                        {/* Break Down */}
                         <button 
-                            onClick={handleAnalyze}
-                            disabled={isAnalyzing}
-                            className="text-xs bg-purple-600 hover:bg-purple-500 text-white px-2 py-1 rounded flex items-center gap-1 disabled:opacity-50"
+                            onClick={() => handleExpand('down')}
+                            disabled={isExpandingDown}
+                            className="bg-purple-900/20 hover:bg-purple-900/40 border border-purple-500/30 rounded p-2 text-left transition-all group disabled:opacity-50"
                         >
-                            {isAnalyzing ? (
-                                <BrainCircuit className="w-3 h-3 animate-pulse" />
-                            ) : (
-                                <Sparkles className="w-3 h-3" />
-                            )}
-                            {isAnalyzing ? 'Analyzing...' : 'Regenerate'}
+                            <div className="flex items-center gap-2 text-purple-300 text-xs font-bold mb-1">
+                                {isExpandingDown ? <Wand2 className="w-3 h-3 animate-spin"/> : <GitFork className="w-3 h-3 rotate-180" />}
+                                Break Down
+                            </div>
+                            <div className="text-[10px] text-gray-400 leading-tight">
+                                Create MECE sub-nodes (Lower Level)
+                            </div>
+                        </button>
+
+                        {/* Abstract */}
+                        <button 
+                            onClick={() => handleExpand('up')}
+                            disabled={isExpandingUp}
+                            className="bg-blue-900/20 hover:bg-blue-900/40 border border-blue-500/30 rounded p-2 text-left transition-all group disabled:opacity-50"
+                        >
+                            <div className="flex items-center gap-2 text-blue-300 text-xs font-bold mb-1">
+                                {isExpandingUp ? <Wand2 className="w-3 h-3 animate-spin"/> : <ArrowUpCircle className="w-3 h-3" />}
+                                Abstract
+                            </div>
+                            <div className="text-[10px] text-gray-400 leading-tight">
+                                Create parent concept (Upper Level)
+                            </div>
                         </button>
                     </div>
 
-                    {/* Summary Card */}
-                    <div className="bg-purple-900/20 border border-purple-500/30 p-3 rounded text-sm text-gray-300 italic">
-                        "{node.summary || "No summary available. Click regenerate."}"
-                    </div>
+                    <div className="flex justify-between items-center bg-black/20 p-2 rounded border border-white/5">
+                        <span className="text-xs text-gray-400">Content Refinement</span>
+                        <div className="flex gap-2">
+                             <button 
+                                onClick={handleRewrite}
+                                disabled={isRewriting}
+                                className="text-xs bg-white/5 hover:bg-white/10 text-white px-2 py-1 rounded flex items-center gap-1 disabled:opacity-50"
+                                title="Rewrite description based on connected nodes"
+                            >
+                                {isRewriting ? <Wand2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
+                                Context Rewrite
+                            </button>
 
-                    {/* Tags */}
-                    <div className="flex flex-wrap gap-2">
-                        {node.tags && node.tags.length > 0 ? (
-                            node.tags.map((tag, i) => (
-                                <span key={i} className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full border border-gray-600">
-                                    #{tag}
-                                </span>
-                            ))
-                        ) : (
-                            <span className="text-xs text-gray-500">No tags</span>
-                        )}
+                            <button 
+                                onClick={handleAnalyze}
+                                disabled={isAnalyzing}
+                                className="text-xs bg-purple-600 hover:bg-purple-500 text-white px-2 py-1 rounded flex items-center gap-1 disabled:opacity-50"
+                            >
+                                {isAnalyzing ? <BrainCircuit className="w-3 h-3 animate-pulse" /> : <Sparkles className="w-3 h-3" />}
+                                Regenerate
+                            </button>
+                        </div>
                     </div>
+                </div>
+
+                {/* Summary Card */}
+                <div className="bg-purple-900/10 border border-purple-500/20 p-3 rounded text-sm text-gray-300 italic">
+                    "{node.summary || "No summary available. Click regenerate."}"
+                </div>
+
+                {/* Tags */}
+                <div className="flex flex-wrap gap-2">
+                    {node.tags && node.tags.length > 0 ? (
+                        node.tags.map((tag, i) => (
+                            <span key={i} className="text-xs bg-white/5 text-gray-300 px-2 py-0.5 rounded-full border border-white/10">
+                                #{tag}
+                            </span>
+                        ))
+                    ) : (
+                        <span className="text-xs text-gray-500">No tags</span>
+                    )}
                 </div>
 
                 {/* Metadata Grid */}
                 <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-black/30 p-3 rounded border border-gray-700">
+                    <div className="bg-black/30 p-3 rounded border border-white/10">
                         <div className="flex items-center gap-2 text-gray-400 text-xs mb-1">
-                        <Tag className="w-3 h-3" /> Module
+                        <Layers className="w-3 h-3" /> Type
                         </div>
-                        <div className="font-semibold text-sm text-gray-200">
-                        {node.module || 'General'}
+                        <div className="font-semibold text-sm text-gray-200 capitalize">
+                        {node.node_type || 'Child'}
                         </div>
                     </div>
-                    <div className="bg-black/30 p-3 rounded border border-gray-700">
-                        {/* Topic Cluster (New from PRD) */}
+                    <div className="bg-black/30 p-3 rounded border border-white/10">
                         <div className="flex items-center gap-2 text-gray-400 text-xs mb-1">
                         <BrainCircuit className="w-3 h-3" /> Topic
                         </div>
                         <div className="font-semibold text-sm text-gray-200">
-                        {node.topic_cluster || 'Unclassified'}
+                        {node.main_topic || 'Unclassified'}
                         </div>
                     </div>
                 </div>
 
                 {/* File Content */}
                 <div>
-                    <div className="flex items-center gap-2 text-gray-400 text-sm font-semibold mb-2 border-b border-gray-700 pb-1">
-                        <FileText className="w-4 h-4" />
-                        Original Content
+                    <div className="flex items-center justify-between mb-2 border-b border-white/10 pb-2">
+                        <div className="flex items-center gap-2 text-gray-400 text-sm font-semibold">
+                            <FileText className="w-4 h-4" />
+                            Original Content
+                        </div>
+                        {onViewDocument && (
+                            <button
+                                onClick={() => {
+                                    onViewDocument(node);
+                                    onClose();
+                                }}
+                                className="text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 px-3 py-1.5 rounded-lg flex items-center gap-2 border border-blue-500/30 transition-all"
+                                title="View in Chat Section"
+                            >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                                View in Chat
+                            </button>
+                        )}
                     </div>
-                    <div className="bg-gray-900 p-3 rounded border border-gray-700 font-mono text-sm text-gray-300 whitespace-pre-wrap max-h-96 overflow-y-auto custom-scrollbar">
+                    <div className="bg-[#151517] p-3 rounded border border-white/10 font-mono text-sm text-gray-300 whitespace-pre-wrap max-h-96 overflow-y-auto custom-scrollbar">
                         {node.content || "No content available."}
                     </div>
                 </div>
@@ -310,4 +508,3 @@ const NodeInspector = ({ node, onClose, onRefresh }) => {
 };
 
 export default NodeInspector;
-

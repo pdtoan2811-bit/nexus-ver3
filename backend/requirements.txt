@@ -8,3 +8,4 @@ motor
 python-multipart
 requests
 beautifulsoup4
+Pillow

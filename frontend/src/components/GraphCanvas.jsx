@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import ReactFlow, { 
   Controls, 
   Background, 
@@ -8,10 +8,12 @@ import ReactFlow, {
   MarkerType,
   addEdge,
   ReactFlowProvider,
-  useReactFlow
+  useReactFlow,
+  ConnectionMode,
+  ConnectionLineType
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { createEdge, ingestText } from '../api';
+import { createEdge, ingestText, getContext, uploadImage } from '../api';
 import { getLayoutedElements } from '../utils/layout';
 import { Layout } from 'lucide-react';
 import CustomNode from './CustomNode';
@@ -36,18 +38,99 @@ const GraphCanvasContent = ({
   depthMode,
   onDepthChange,
   onTriggerContext,
-  onRefresh 
+  onRefresh,
+  onEdgeClick,
+  onConnectRequest // New prop for handling manual connections via App
 }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [contextRegistry, setContextRegistry] = useState(null);
   const reactFlowInstance = useReactFlow();
+  
+  // Ref to track if we need to update styles
+  const prevSelectionRef = useRef(selectedNodeIds);
+  const prevContextRef = useRef(contextNodes);
 
-  // Handle Global Paste (YouTube or Generic URL)
+  // Fetch context registry for colors
+  useEffect(() => {
+    const fetchContext = async () => {
+        try {
+            const data = await getContext();
+            setContextRegistry(data);
+        } catch (e) {
+            console.error("Failed to fetch context for colors", e);
+        }
+    };
+    fetchContext();
+  }, []);
+
+  // Handle Global Paste (Images, YouTube, or Generic URL)
   useEffect(() => {
     const handlePaste = async (e) => {
         // Only trigger if no input/textarea is focused
         if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
 
+        // Check for image first
+        const items = Array.from(e.clipboardData.items);
+        const imageItem = items.find(item => item.type.startsWith('image/'));
+        
+        if (imageItem) {
+            e.preventDefault();
+            const file = imageItem.getAsFile();
+            
+            if (!file) return;
+            
+            // Skeleton Node for image
+            const loadingNode = {
+                id: 'processing-image-' + Date.now(),
+                type: 'document',
+                data: { label: 'Analyzing Image...', module: 'Ingestion', status: 'loading' },
+                position: reactFlowInstance.project({ x: window.innerWidth / 2, y: window.innerHeight / 2 }),
+                style: { opacity: 0.8 }
+            };
+            
+            // Optimistic update
+            setNodes((nds) => nds.concat(loadingNode));
+            
+            try {
+                // Upload and analyze image
+                const result = await uploadImage(file, 'General', 'Uncategorized');
+                
+                // Remove loading node
+                setNodes((nds) => nds.filter(n => n.id !== loadingNode.id));
+                
+                // Refresh graph to show new node
+                if (onRefresh) {
+                    await onRefresh();
+                }
+            } catch (error) {
+                console.error('Image paste failed:', error);
+                // Remove loading node and show error
+                setNodes((nds) => nds.filter(n => n.id !== loadingNode.id));
+                
+                const errorNode = {
+                    id: 'error-image-' + Date.now(),
+                    type: 'document',
+                    data: { 
+                        label: 'Image Analysis Failed', 
+                        module: 'Error', 
+                        status: 'error',
+                        error: error.message || 'Failed to analyze image'
+                    },
+                    position: reactFlowInstance.project({ x: window.innerWidth / 2, y: window.innerHeight / 2 }),
+                    style: { opacity: 0.8 }
+                };
+                setNodes((nds) => nds.concat(errorNode));
+                
+                // Remove error node after 5 seconds
+                setTimeout(() => {
+                    setNodes((nds) => nds.filter(n => n.id !== errorNode.id));
+                }, 5000);
+            }
+            return;
+        }
+
+        // Check for text/URL
         const text = e.clipboardData.getData('text');
         if (!text) return;
 
@@ -92,16 +175,34 @@ const GraphCanvasContent = ({
     return () => window.removeEventListener('paste', handlePaste);
   }, [onRefresh, reactFlowInstance, setNodes]);
 
-  // Initialize Graph with Auto-Layout
+  // Initialize Graph with Auto-Layout (Only when initial data actually changes)
   useEffect(() => {
-    if (initialNodes) { 
+    if (initialNodes && initialNodes.length > 0) { 
         // Create raw nodes first
-        const rawNodes = initialNodes.map((n) => ({
+        const rawNodes = initialNodes.map((n) => {
+            // Determine Color: Manual override > Topic color > Default
+            let nodeColor = n.color; // Check for manual override first
+            if (!nodeColor) {
+                // Fall back to topic color
+                if (contextRegistry && contextRegistry.topics) {
+                    const topicData = contextRegistry.topics[n.main_topic];
+                    if (topicData && topicData.color) {
+                        nodeColor = topicData.color;
+                    }
+                }
+                // Final fallback
+                if (!nodeColor) {
+                    nodeColor = '#3B82F6'; // Default Blue
+                }
+            }
+
+            return {
             id: n.id,
-            data: { label: n.id, ...n },
+                data: { label: n.id, ...n, color: nodeColor },
             type: 'document', // Use our custom type
             position: n.position || { x: 0, y: 0 }
-        }));
+            };
+        });
 
         const rawEdges = initialEdges.map(e => ({
             id: `${e.source}-${e.target}`,
@@ -119,10 +220,19 @@ const GraphCanvasContent = ({
         setNodes(layoutedNodes);
         setEdges(layoutedEdges);
     }
-  }, [initialNodes, initialEdges, setNodes, setEdges]);
+  }, [initialNodes, initialEdges, setNodes, setEdges, contextRegistry]);
 
   // Handle Styling based on Selection and Context
   useEffect(() => {
+    // Avoid redundant updates
+    const selectionChanged = JSON.stringify(selectedNodeIds) !== JSON.stringify(prevSelectionRef.current);
+    const contextChanged = JSON.stringify(contextNodes) !== JSON.stringify(prevContextRef.current);
+
+    if (!selectionChanged && !contextChanged) return;
+
+    prevSelectionRef.current = selectedNodeIds;
+    prevContextRef.current = contextNodes;
+
     setNodes((nds) => 
       nds.map((node) => {
         const isSelected = selectedNodeIds.includes(node.id);
@@ -132,8 +242,9 @@ const GraphCanvasContent = ({
         // or just use style for opacity
         return {
             ...node,
-            selected: isSelected, // Force update
+            // Removed: selected: isSelected (Let React Flow handle this internally)
             style: {
+                ...node.style,
                 opacity: (selectedNodeIds.length === 0 || isSelected || isContext) ? 1 : 0.2,
                 transition: 'opacity 0.3s ease'
             }
@@ -148,26 +259,12 @@ const GraphCanvasContent = ({
   }, [onSelectionChange]);
 
   const onConnect = useCallback(async (params) => {
-    const justification = window.prompt("Why are these nodes related? (Edge Justification)");
-    if (!justification) return; 
-
-    const newEdge = { 
-        ...params, 
-        id: `${params.source}-${params.target}`, 
-        label: justification,
-        type: 'default',
-        markerEnd: { type: MarkerType.ArrowClosed }
-    };
-    setEdges((eds) => addEdge(newEdge, eds));
-
-    try {
-        await createEdge(params.source, params.target, justification);
-        if (onRefresh) onRefresh(); 
-    } catch (error) {
-        console.error("Failed to create edge:", error);
-        alert("Failed to save edge to server.");
+    // OLD: Prompt
+    // NEW: Delegate to App via onConnectRequest
+    if (onConnectRequest) {
+        onConnectRequest(params);
     }
-  }, [setEdges, onRefresh]);
+  }, [onConnectRequest]);
 
   const handleLayout = useCallback(() => {
     const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
@@ -224,6 +321,7 @@ const GraphCanvasContent = ({
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onSelectionChange={onSelectionChangeCallback}
+        onEdgeClick={onEdgeClick}
         onConnect={onConnect}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
@@ -231,6 +329,13 @@ const GraphCanvasContent = ({
         multiSelectionKeyCode="Control"
         fitView
         className="bg-black"
+        connectionMode={ConnectionMode.Loose}
+        connectionLineType={ConnectionLineType.SmoothStep}
+        connectionLineStyle={{
+            stroke: '#60a5fa',
+            strokeWidth: 3,
+            strokeDasharray: '5,5',
+        }}
       >
         <Background color="#222" gap={20} size={1} />
         <Controls className="bg-gray-900 border-white/10 text-gray-400" />

@@ -1,6 +1,17 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+}
+
 /* Custom Scrollbar for Logs */
 .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
+    height: 6px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
     background: rgba(0, 0, 0, 0.2);
@@ -11,4 +22,63 @@
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.3);
+}
+
+/* Typography Overrides for Markdown */
+.prose h1 {
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    margin-top: 1.5em;
+    margin-bottom: 0.8em;
+}
+.prose h2 {
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    margin-top: 1.2em;
+    margin-bottom: 0.6em;
+}
+.prose p {
+    margin-top: 0.8em;
+    margin-bottom: 0.8em;
+    line-height: 1.75;
+}
+.prose li {
+    margin-top: 0.4em;
+    margin-bottom: 0.4em;
+}
+
+/* Responsive table wrapper */
+.prose table {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.prose table thead,
+.prose table tbody,
+.prose table tr {
+    display: table;
+    width: 100%;
+    table-layout: fixed;
+}
+
+/* Ensure images don't overflow */
+.prose img {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Ensure code blocks don't overflow */
+.prose pre {
+    overflow-x: auto;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+}
+
+/* Ensure all content wraps properly */
+.prose {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }

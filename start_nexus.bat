@@ -37,11 +37,32 @@ if %errorlevel% equ 0 (
 echo.
 echo [BACKEND] Starting...
 cd backend
+
+:: Create venv if it doesn't exist
 if not exist "venv" (
-    echo [BACKEND] Creating venv...
+    echo [BACKEND] Creating virtual environment...
     python -m venv venv
-    call venv\Scripts\activate
-    pip install -r requirements.txt
+    if errorlevel 1 (
+        echo [ERROR] Failed to create virtual environment. Please ensure Python is installed.
+        pause
+        exit /b
+    )
+)
+
+:: Activate venv and install/upgrade requirements
+echo [BACKEND] Activating virtual environment...
+call venv\Scripts\activate
+
+echo [BACKEND] Installing/upgrading Python dependencies...
+echo [INFO] This may take a few minutes on first run...
+pip install --upgrade pip >nul 2>&1
+pip install -r requirements.txt
+if errorlevel 1 (
+    echo [ERROR] Failed to install requirements. Please check requirements.txt
+    pause
+    exit /b
+) else (
+    echo [SUCCESS] All Python dependencies installed successfully.
 )
 
 :: Check for .env file or environment variable
@@ -60,6 +81,7 @@ if exist "%PROJECT_ROOT%backend\.env" (
 )
 
 :: Use /D to set working directory safely
+echo [BACKEND] Starting server...
 start "Nexus Backend" /D "%PROJECT_ROOT%backend" cmd /k "venv\Scripts\activate && uvicorn main:app --reload"
 
 :: ------------------------------------------------------------------

@@ -11,6 +11,7 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
     const [file, setFile] = useState(null);
     const [textContent, setTextContent] = useState('');
     const [module, setModule] = useState("General");
+    const [mainTopic, setMainTopic] = useState("Uncategorized"); // New State for Topic
     const [status, setStatus] = useState("idle"); 
     const [progress, setProgress] = useState(0);
     const [logs, setLogs] = useState([]);
@@ -65,7 +66,7 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
             let result;
             if (mode === 'file') {
                  result = await Promise.race([
-                    uploadDocument(file, module, (percent) => {
+                    uploadDocument(file, module, mainTopic, (percent) => {
                         setProgress(percent);
                         if (percent % 20 === 0 && percent < 100) {
                             addLog(`Upload progress: ${percent}%`);
@@ -82,7 +83,7 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
                 
                 try {
                     result = await Promise.race([
-                        ingestText(textContent, module),
+                        ingestText(textContent, module, mainTopic),
                         timeoutPromise
                     ]);
                     clearInterval(progressInterval);
@@ -260,15 +261,27 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
 
                 {/* Controls */}
                 <div className="space-y-3">
-                    <div>
-                        <label className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Module Tag</label>
-                        <input 
-                            type="text" 
-                            value={module}
-                            onChange={(e) => setModule(e.target.value)}
-                            className="w-full bg-black/20 border border-gray-600 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 outline-none mt-1"
-                            placeholder="e.g. Payments"
-                        />
+                    <div className="flex gap-2">
+                        <div className="flex-1">
+                            <label className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Topic</label>
+                            <input 
+                                type="text" 
+                                value={mainTopic}
+                                onChange={(e) => setMainTopic(e.target.value)}
+                                className="w-full bg-black/20 border border-gray-600 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 outline-none mt-1"
+                                placeholder="e.g. Finance"
+                            />
+                        </div>
+                        <div className="flex-1">
+                            <label className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Module</label>
+                            <input 
+                                type="text" 
+                                value={module}
+                                onChange={(e) => setModule(e.target.value)}
+                                className="w-full bg-black/20 border border-gray-600 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 outline-none mt-1"
+                                placeholder="e.g. Payments"
+                            />
+                        </div>
                     </div>
 
                     {status === 'uploading' && (
@@ -333,4 +346,3 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
 };
 
 export default IngestionWidget;
-
