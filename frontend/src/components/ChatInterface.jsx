@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, BrainCircuit, FilePlus, Sparkles, Maximize2, Minimize2, X, FileText, ArrowLeft, Plus, Network, Edit2, Trash2, Save, RotateCcw, Wand2, GitFork, ArrowUpCircle, Layers, Palette } from 'lucide-react';
+import { Send, BrainCircuit, FilePlus, Sparkles, Maximize2, Minimize2, X, FileText, ArrowLeft, Plus, Network, Edit2, Trash2, Save, RotateCcw, Wand2, GitFork, ArrowUpCircle, Layers, Palette, Users, FileText as FileTextIcon } from 'lucide-react';
 import { analyzeNode, updateNode, deleteNode, getContext, rewriteNode, expandNode } from '../api';
 
 const ChatInterface = ({ 
@@ -18,7 +18,11 @@ const ChatInterface = ({
   documentNode,
   onCloseDocument,
   onExpandContext,
-  onRefresh // For refreshing graph after updates
+  onRefresh, // For refreshing graph after updates
+  // Mode switching props
+  chatMode = 'document',
+  onSwitchChatMode,
+  selectedNodeIds = []
 }) => {
   const [input, setInput] = useState('');
   const bottomRef = useRef(null);
@@ -629,7 +633,9 @@ const ChatInterface = ({
                     <span className="text-[11px] text-gray-400 font-medium">
                         {isDocumentMode 
                           ? 'Document View' 
-                          : (contextCount > 0 ? `${contextCount} Nodes Context` : 'Ready')
+                          : chatMode === 'multi-node'
+                            ? (contextCount > 0 ? `${contextCount} Nodes Context` : selectedNodeIds.length > 0 ? `${selectedNodeIds.length} Selected` : 'Select Nodes')
+                            : (contextCount > 0 ? `${contextCount} Nodes Context` : 'Ready')
                         }
                     </span>
                     {!isDocumentMode && dominantModule && (
@@ -643,6 +649,20 @@ const ChatInterface = ({
         
         {/* Window Controls */}
         <div className="flex items-center gap-1 shrink-0">
+            {/* Mode Switch Button */}
+            {onSwitchChatMode && (
+              <button
+                onClick={() => onSwitchChatMode(chatMode === 'document' ? 'multi-node' : 'document')}
+                className={`p-2 rounded-lg transition-colors ${
+                  chatMode === 'multi-node' 
+                    ? 'bg-blue-600/80 text-white hover:bg-blue-500' 
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}
+                title={chatMode === 'document' ? 'Switch to Multi-Node Context Mode' : 'Switch to Document Mode'}
+              >
+                {chatMode === 'document' ? <Users className="w-4 h-4" /> : <FileTextIcon className="w-4 h-4" />}
+              </button>
+            )}
             {!isDocumentMode && onExpandContext && contextCount > 0 && (
               <button
                 onClick={onExpandContext}
@@ -741,8 +761,14 @@ const ChatInterface = ({
                       <BrainCircuit className="w-8 h-8 text-gray-500" />
                     </div>
                     <div className="space-y-1">
-                      <p className="font-medium text-gray-400">No context selected</p>
-                      <p className="text-gray-600 text-xs">Select nodes on the graph to begin analysis</p>
+                      <p className="font-medium text-gray-400">
+                        {chatMode === 'multi-node' ? 'No nodes selected' : 'No context selected'}
+                      </p>
+                      <p className="text-gray-600 text-xs">
+                        {chatMode === 'multi-node' 
+                          ? 'Select one or more nodes on the graph to create a multi-node context' 
+                          : 'Select nodes on the graph to begin analysis'}
+                      </p>
                     </div>
             </div>
         ) : (
@@ -831,7 +857,7 @@ const ChatInterface = ({
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-              placeholder={isDocumentMode ? "Ask about this document..." : "Ask a follow-up..."}
+              placeholder={isDocumentMode ? "Ask about this document..." : (contextCount > 0 ? "Ask a follow-up..." : "Select nodes and click Chat to begin...")}
               className="w-full bg-[#1C1C1E] text-white border border-white/10 rounded-2xl pl-4 sm:pl-5 pr-12 sm:pr-14 py-3 sm:py-4 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 placeholder-gray-600 text-[14px] sm:text-[15px] transition-all shadow-lg shadow-black/20"
               disabled={isLoading}
             />

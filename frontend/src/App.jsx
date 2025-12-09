@@ -26,6 +26,7 @@ function App() {
   const [isCanvasManagerOpen, setIsCanvasManagerOpen] = useState(false);
   const [appSettings, setAppSettings] = useState({});
   const [documentViewNode, setDocumentViewNode] = useState(null); // For document view mode
+  const [chatMode, setChatMode] = useState('document'); // 'document' or 'multi-node'
   const [saveStatus, setSaveStatus] = useState({ saved: false, message: '', timestamp: null });
 
   // Layout State
@@ -182,52 +183,66 @@ function App() {
 
 
   // REQ-UI-02: Update Context when selection or depth changes
-  const handleContextCalculation = async () => {
-    if (selectedNodeIds.length === 0) return;
+  const handleContextCalculation = useCallback(async (nodeIds = null) => {
+    const idsToUse = nodeIds || selectedNodeIds;
+    if (idsToUse.length === 0) {
+      setIsLoading(false);
+      return;
+    }
     
     setIsLoading(true);
     try {
-      const result = await calculateContext(selectedNodeIds, depthMode);
-      setContextData(result);
-      if (!contextData || contextData.session_id !== result.session_id) {
-         setChatHistory([]);
-      }
+      const result = await calculateContext(idsToUse, depthMode);
+      setContextData(prev => {
+        if (!prev || prev.session_id !== result.session_id) {
+          setChatHistory([]);
+        }
+        return result;
+      });
     } catch (error) {
       console.error("Context calculation failed:", error);
+      // Ensure loading is set to false even on error
+      setIsLoading(false);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [selectedNodeIds, depthMode]);
 
-  const handleSendMessage = async (prompt) => {
-    // If in document view mode, create a session for that document
-    if (documentViewNode && !contextData?.session_id) {
-      // Create context for just this document
-      try {
-        const result = await calculateContext([documentViewNode.id], 'F0');
-        setContextData(result);
-        setChatHistory([]);
-      } catch (error) {
-        console.error("Failed to create document context:", error);
-        return;
+  // Handler for Chat button - switches to multi-node mode and creates context
+  const handleChatButtonClick = useCallback(async () => {
+    // Switch to multi-node mode first
+    setChatMode('multi-node');
+    
+    // Use selected nodes or current document node
+    const nodesToUse = selectedNodeIds.length > 0 
+      ? selectedNodeIds 
+      : (documentViewNode ? [documentViewNode.id] : []);
+    
+    if (nodesToUse.length > 0) {
+      // Clear document view when switching to multi-node mode
+      setDocumentViewNode(null);
+      // Calculate context with selected nodes
+      await handleContextCalculation(nodesToUse);
+    } else {
+      // If no nodes selected, just switch mode (user can select nodes after)
+      setDocumentViewNode(null);
+      // Show a message or prompt user to select nodes
+      if (selectedNodeIds.length === 0) {
+        // User needs to select nodes first
+        console.log("Please select nodes to create context");
       }
     }
     
-    if (!contextData?.session_id) return;
-    
-    // Optimistic UI update
-    const tempMsg = { role: 'user', content: prompt, timestamp: new Date().toISOString() };
-    setChatHistory(prev => [...prev, tempMsg]);
-    
-    try {
-      const responseMsg = await sendMessage(contextData.session_id, prompt);
-      setChatHistory(prev => [...prev, responseMsg]);
-    } catch (error) {
-      console.error("Message failed:", error);
+    // Ensure chat panel is visible (not minimized)
+    if (isChatMaximized) {
+      // Chat is already maximized, good
+    } else if (chatWidth < 30) {
+      // If chat is too narrow, expand it a bit
+      setChatWidth(40);
     }
-  };
+  }, [selectedNodeIds, documentViewNode, handleContextCalculation, isChatMaximized, chatWidth]);
 
-  const handleOpenDocumentView = async (node) => {
+  const handleOpenDocumentView = useCallback(async (node) => {
     // Open document in chat section
     setDocumentViewNode(node);
     setSelectedEdge(null);
@@ -239,6 +254,107 @@ function App() {
       setChatHistory([]);
     } catch (err) {
       console.error("Failed to load document context:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Switch between document mode and multi-node mode
+  const handleSwitchChatMode = useCallback(async (newMode) => {
+    setChatMode(newMode);
+    
+    if (newMode === 'multi-node') {
+      // Switch to multi-node mode: use selected nodes or current document node
+      const nodesToUse = selectedNodeIds.length > 0 
+        ? selectedNodeIds 
+        : (documentViewNode ? [documentViewNode.id] : []);
+      
+      if (nodesToUse.length > 0) {
+        setDocumentViewNode(null); // Clear document view
+        await handleContextCalculation(nodesToUse);
+      }
+    } else {
+      // Switch to document mode: if we have a single selected node, open it
+      if (selectedNodeIds.length === 1) {
+        const nodeData = graphData.nodes.find(n => n.id === selectedNodeIds[0]);
+        if (nodeData) {
+          await handleOpenDocumentView(nodeData);
+        }
+      } else if (documentViewNode) {
+        // Keep current document view
+        await handleOpenDocumentView(documentViewNode);
+      }
+    }
+  }, [selectedNodeIds, documentViewNode, graphData.nodes, handleContextCalculation, handleOpenDocumentView]);
+
+  const handleSendMessage = async (prompt) => {
+    // Get current session ID
+    let sessionId = contextData?.session_id;
+    
+    // If no session exists, create one based on current mode
+    if (!sessionId) {
+      let nodesToUse = [];
+      
+      if (documentViewNode) {
+        // Document mode: use the document node
+        nodesToUse = [documentViewNode.id];
+      } else if (chatMode === 'multi-node' && selectedNodeIds.length > 0) {
+        // Multi-node mode: use selected nodes
+        nodesToUse = selectedNodeIds;
+      } else if (selectedNodeIds.length > 0) {
+        // Fallback: use selected nodes
+        nodesToUse = selectedNodeIds;
+      } else {
+        // No nodes selected - show error
+        console.error("No nodes selected for chat");
+        alert("Please select nodes first, then click Chat button to create context.");
+        return;
+      }
+      
+      // Create context with selected nodes
+      try {
+        setIsLoading(true);
+        const result = await calculateContext(nodesToUse, depthMode);
+        
+        // Use the result directly, not the state (which may not be updated yet)
+        if (!result?.session_id) {
+          console.error("Failed to create chat session");
+          setIsLoading(false);
+          alert("Failed to create chat context. Please try again.");
+          return;
+        }
+        
+        sessionId = result.session_id;
+        setContextData(result);
+        setChatHistory([]);
+        setIsLoading(false);
+      } catch (error) {
+        console.error("Failed to create context:", error);
+        setIsLoading(false);
+        alert("Failed to create chat context: " + (error.message || "Unknown error"));
+        return;
+      }
+    }
+    
+    // Double check we have a session_id before proceeding
+    if (!sessionId) {
+      console.error("No session_id available");
+      return;
+    }
+    
+    // Optimistic UI update
+    const tempMsg = { role: 'user', content: prompt, timestamp: new Date().toISOString() };
+    setChatHistory(prev => [...prev, tempMsg]);
+    
+    setIsLoading(true);
+    try {
+      const responseMsg = await sendMessage(sessionId, prompt);
+      setChatHistory(prev => [...prev, responseMsg]);
+    } catch (error) {
+      console.error("Message failed:", error);
+      // Remove the optimistic message on error
+      setChatHistory(prev => prev.slice(0, -1));
+      alert("Failed to send message: " + (error.message || "Unknown error"));
     } finally {
       setIsLoading(false);
     }
@@ -310,16 +426,22 @@ function App() {
       setSelectedNodeIds(ids);
       if (ids.length > 0) {
           setSelectedEdge(null);
-          // Single-click: Open document in chat section
-          const nodeData = graphData.nodes.find(n => n.id === ids[0]);
-          if (nodeData) {
-              handleOpenDocumentView(nodeData);
+          // In document mode: Open single document in chat section
+          // In multi-node mode: Don't auto-calculate context on selection
+          // User must click Chat button to create context (prevents flickering)
+          if (chatMode === 'document') {
+              const nodeData = graphData.nodes.find(n => n.id === ids[0]);
+              if (nodeData) {
+                  handleOpenDocumentView(nodeData);
+              }
           }
+          // In multi-node mode, we don't auto-calculate context
+          // User needs to click Chat button explicitly to avoid flickering
       } else {
           // Clear selection: Close document view only if it matches
           // (Don't close if user is just deselecting)
       }
-  }, [graphData.nodes]);
+  }, [graphData.nodes, chatMode, handleOpenDocumentView]);
 
   const handleEdgeClick = useCallback((event, edge) => {
       event.stopPropagation();
@@ -435,7 +557,7 @@ function App() {
           contextNodes={contextData?.context_nodes || []}
           depthMode={depthMode}
           onDepthChange={setDepthMode}
-          onTriggerContext={handleContextCalculation}
+          onTriggerContext={handleChatButtonClick}
           onRefresh={fetchGraph}
         />
 
@@ -473,7 +595,7 @@ function App() {
       {/* RIGHT PANEL: Chat (Dynamic Width) */}
       <div 
         style={{ width: `${chatWidth}%` }} 
-        className="h-full flex flex-col relative transition-all duration-300"
+        className="h-full flex flex-col relative transition-all duration-300 z-10"
       >
         <ChatInterface 
           history={chatHistory} 
@@ -486,6 +608,9 @@ function App() {
           isMaximized={isChatMaximized}
           documentNode={documentViewNode}
           onCloseDocument={handleCloseDocumentView}
+          chatMode={chatMode}
+          onSwitchChatMode={handleSwitchChatMode}
+          selectedNodeIds={selectedNodeIds}
           onExpandContext={handleExpandContext}
           onRefresh={handleDocumentRefresh}
         />
