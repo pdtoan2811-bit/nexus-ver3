@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-    Upload, FileText, CheckCircle, AlertCircle, X, 
+import {
+    Upload, FileText, CheckCircle, AlertCircle, X,
     Minus, Maximize2, Terminal, Activity, Link
 } from 'lucide-react';
 import { uploadDocument, ingestText } from '../api';
@@ -10,12 +10,13 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
     const [mode, setMode] = useState('file'); // 'file' | 'text'
     const [file, setFile] = useState(null);
     const [textContent, setTextContent] = useState('');
-    const [module, setModule] = useState("General");
-    const [mainTopic, setMainTopic] = useState("Uncategorized"); // New State for Topic
-    const [status, setStatus] = useState("idle"); 
+    const [module, setModule] = useState(""); // Deprecated but kept for API compat
+    const [mainTopic, setMainTopic] = useState(""); // Deprecated
+    const [folderPath, setFolderPath] = useState(""); // New: Target Folder
+    const [status, setStatus] = useState("idle");
     const [progress, setProgress] = useState(0);
     const [logs, setLogs] = useState([]);
-    
+
     // Auto-scroll logs
     const logEndRef = useRef(null);
     useEffect(() => {
@@ -48,7 +49,7 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
 
         setStatus("uploading");
         setProgress(0);
-        
+
         if (mode === 'file') {
             addLog(`Starting upload for ${file.name}...`, 'info');
         } else if (isYouTube) {
@@ -58,15 +59,15 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
         }
 
         // Create a timeout promise
-        const timeoutPromise = new Promise((_, reject) => 
+        const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error("Request timed out (60s)")), 60000)
         );
 
         try {
             let result;
             if (mode === 'file') {
-                 result = await Promise.race([
-                    uploadDocument(file, module, mainTopic, (percent) => {
+                result = await Promise.race([
+                    uploadDocument(file, folderPath, (percent) => {
                         setProgress(percent);
                         if (percent % 20 === 0 && percent < 100) {
                             addLog(`Upload progress: ${percent}%`);
@@ -80,10 +81,10 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
                 const progressInterval = setInterval(() => {
                     setProgress(p => Math.min(p + 5, 95));
                 }, 800);
-                
+
                 try {
                     result = await Promise.race([
-                        ingestText(textContent, module, mainTopic),
+                        ingestText(textContent, folderPath),
                         timeoutPromise
                     ]);
                     clearInterval(progressInterval);
@@ -92,33 +93,33 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
                     throw e;
                 }
             }
-            
+
             setStatus("success");
             setProgress(100);
-            
+
             if (isYouTube) {
                 addLog(`Video analysis complete. Node ID: ${result.node_id}`, 'success');
             } else {
                 addLog(`Ingestion complete. Node ID: ${result.node_id}`, 'success');
             }
-            
+
             addLog(`Graph updated.`, 'success');
             onUploadSuccess();
-            
+
             setTimeout(() => {
                 setFile(null);
                 setTextContent('');
                 setStatus("idle");
                 setProgress(0);
             }, 3000);
-            
+
         } catch (error) {
             console.error(error);
             setStatus("error");
             addLog(`Error: ${error.message}`, 'error');
-            
+
             if (error.message.includes("timed out")) {
-                 addLog("Tip: Check Backend console for freeze/crash.", 'info');
+                addLog("Tip: Check Backend console for freeze/crash.", 'info');
             }
         }
     };
@@ -127,7 +128,7 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
     // User requested "immediately create a node skeleton" - this is complex without backend async status.
     // For now, let's implement the UI feedback requested: 
     // "progress whenever I paste a youtube url" -> Detect paste -> set status -> start ingest
-    
+
     const handleTextPaste = (e) => {
         const text = e.clipboardData.getData('text');
         if (text && text.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/)) {
@@ -142,7 +143,7 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
     if (isMinimized) {
         return (
             <div className="fixed bottom-4 right-4 z-50 bg-gray-800 border border-gray-600 rounded-lg shadow-xl w-72 overflow-hidden flex flex-col">
-                <div 
+                <div
                     className="bg-gray-900 p-3 flex justify-between items-center cursor-pointer hover:bg-gray-800 transition-colors"
                     onClick={() => setIsMinimized(false)}
                 >
@@ -164,7 +165,7 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
                 {/* Progress bar line when minimized */}
                 {status === 'uploading' && (
                     <div className="h-1 w-full bg-gray-700">
-                        <div 
+                        <div
                             className="h-full bg-blue-500 transition-all duration-300"
                             style={{ width: `${progress}%` }}
                         />
@@ -184,14 +185,14 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
                     Ingestion Manager
                 </h3>
                 <div className="flex items-center gap-1">
-                    <button 
+                    <button
                         onClick={() => setIsMinimized(true)}
                         className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
                         title="Minimize"
                     >
                         <Minus className="w-4 h-4" />
                     </button>
-                    <button 
+                    <button
                         onClick={onClose}
                         className="p-1 hover:bg-red-900 rounded text-gray-400 hover:text-white"
                         title="Close"
@@ -204,19 +205,17 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
             <div className="p-4 flex-1 overflow-y-auto space-y-4">
                 {/* Mode Toggles */}
                 <div className="flex rounded-md bg-gray-900 p-1 border border-gray-700">
-                    <button 
+                    <button
                         onClick={() => setMode('file')}
-                        className={`flex-1 text-xs py-1.5 rounded flex items-center justify-center gap-2 transition-all ${
-                            mode === 'file' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-gray-200'
-                        }`}
+                        className={`flex-1 text-xs py-1.5 rounded flex items-center justify-center gap-2 transition-all ${mode === 'file' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-gray-200'
+                            }`}
                     >
                         <FileText className="w-3 h-3" /> File Upload
                     </button>
-                    <button 
+                    <button
                         onClick={() => setMode('text')}
-                        className={`flex-1 text-xs py-1.5 rounded flex items-center justify-center gap-2 transition-all ${
-                            mode === 'text' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-gray-200'
-                        }`}
+                        className={`flex-1 text-xs py-1.5 rounded flex items-center justify-center gap-2 transition-all ${mode === 'text' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-gray-200'
+                            }`}
                     >
                         <Link className="w-3 h-3" /> Text / Link
                     </button>
@@ -224,15 +223,14 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
 
                 {/* Input Area */}
                 {mode === 'file' ? (
-                    <div className={`border-2 border-dashed rounded-lg p-6 text-center transition-all ${
-                        file 
-                            ? 'border-blue-500 bg-blue-500/10' 
-                            : 'border-gray-600 hover:border-gray-500 hover:bg-gray-700/30'
-                    }`}>
-                        <input 
-                            type="file" 
-                            id="file-upload" 
-                            className="hidden" 
+                    <div className={`border-2 border-dashed rounded-lg p-6 text-center transition-all ${file
+                        ? 'border-blue-500 bg-blue-500/10'
+                        : 'border-gray-600 hover:border-gray-500 hover:bg-gray-700/30'
+                        }`}>
+                        <input
+                            type="file"
+                            id="file-upload"
+                            className="hidden"
                             onChange={handleFileChange}
                             accept=".txt,.md,.json"
                         />
@@ -245,7 +243,7 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
                     </div>
                 ) : (
                     <div className="space-y-2">
-                         <textarea
+                        <textarea
                             value={textContent}
                             onChange={(e) => setTextContent(e.target.value)}
                             onPaste={handleTextPaste}
@@ -263,23 +261,13 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
                 <div className="space-y-3">
                     <div className="flex gap-2">
                         <div className="flex-1">
-                            <label className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Topic</label>
-                            <input 
-                                type="text" 
-                                value={mainTopic}
-                                onChange={(e) => setMainTopic(e.target.value)}
+                            <label className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Target Folder</label>
+                            <input
+                                type="text"
+                                value={folderPath}
+                                onChange={(e) => setFolderPath(e.target.value)}
                                 className="w-full bg-black/20 border border-gray-600 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 outline-none mt-1"
-                                placeholder="e.g. Finance"
-                            />
-                        </div>
-                        <div className="flex-1">
-                            <label className="text-[10px] uppercase font-bold text-gray-500 tracking-wider">Module</label>
-                            <input 
-                                type="text" 
-                                value={module}
-                                onChange={(e) => setModule(e.target.value)}
-                                className="w-full bg-black/20 border border-gray-600 rounded px-2 py-1.5 text-sm text-white focus:border-blue-500 outline-none mt-1"
-                                placeholder="e.g. Payments"
+                                placeholder="e.g. Work/Projects/Alpha"
                             />
                         </div>
                     </div>
@@ -291,7 +279,7 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
                                 <span>{progress}%</span>
                             </div>
                             <div className="h-1.5 w-full bg-gray-700 rounded-full overflow-hidden">
-                                <div 
+                                <div
                                     className="h-full bg-blue-500 transition-all duration-300"
                                     style={{ width: `${progress}%` }}
                                 />
@@ -299,16 +287,15 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
                         </div>
                     )}
 
-                    <button 
-                        onClick={handleUpload} 
+                    <button
+                        onClick={handleUpload}
                         disabled={(mode === 'file' && !file) || (mode === 'text' && !textContent.trim()) || status === 'uploading'}
-                        className={`w-full py-2 rounded text-sm font-semibold transition-all ${
-                            status === 'success' 
-                                ? 'bg-green-600 text-white cursor-default'
-                                : status === 'error'
+                        className={`w-full py-2 rounded text-sm font-semibold transition-all ${status === 'success'
+                            ? 'bg-green-600 text-white cursor-default'
+                            : status === 'error'
                                 ? 'bg-red-600 text-white hover:bg-red-500'
                                 : 'bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed'
-                        }`}
+                            }`}
                     >
                         {status === 'success' ? (
                             <span className="flex items-center justify-center gap-2"><CheckCircle className="w-4 h-4" /> Done</span>
@@ -329,10 +316,9 @@ const IngestionWidget = ({ isOpen, onClose, onUploadSuccess }) => {
                     <div className="bg-black/40 rounded p-2 h-24 overflow-y-auto font-mono text-[10px] text-gray-300 space-y-1 custom-scrollbar">
                         {logs.length === 0 && <span className="text-gray-600 italic">Ready...</span>}
                         {logs.map((log, i) => (
-                            <div key={i} className={`flex gap-2 ${
-                                log.type === 'error' ? 'text-red-400' : 
+                            <div key={i} className={`flex gap-2 ${log.type === 'error' ? 'text-red-400' :
                                 log.type === 'success' ? 'text-green-400' : ''
-                            }`}>
+                                }`}>
                                 <span className="text-gray-600 shrink-0">[{log.time}]</span>
                                 <span>{log.msg}</span>
                             </div>

@@ -82,7 +82,7 @@ if exist "%PROJECT_ROOT%backend\.env" (
 
 :: Use /D to set working directory safely
 echo [BACKEND] Starting server...
-start "Nexus Backend" /D "%PROJECT_ROOT%backend" cmd /k "venv\Scripts\activate && uvicorn main:app --reload"
+start "Nexus Backend" /D "%PROJECT_ROOT%backend" cmd /k "venv\Scripts\activate && uvicorn main:app --reload --port 8002"
 
 :: ------------------------------------------------------------------
 :: 3. FRONTEND LAUNCH
@@ -126,7 +126,7 @@ start http://localhost:5173
 echo.
 echo ==========================================
 echo Nexus Core is running.
-echo Backend: http://localhost:8000
+echo Backend: http://localhost:8002
 echo Frontend: http://localhost:5173
 echo ==========================================
 pause

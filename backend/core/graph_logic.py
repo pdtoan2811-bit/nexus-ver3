@@ -6,6 +6,7 @@ import os
 import shutil
 import random
 from datetime import datetime
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -428,9 +429,10 @@ class Weaver:
             })
         return summaries
 
-    def add_document_node(self, filename: str, content: str, meta: Dict[str, Any] = None):
+    def add_document_node(self, filename: str, content: str, meta: Dict[str, Any] = None, parent_id: str = None):
         """
         Ingests a document as a Node.
+        Supports optional parent_id to link to a folder (dynamic hierarchy).
         """
         node_id = filename 
         
@@ -442,40 +444,189 @@ class Weaver:
             "type": "document",
             "content": content,
             "created_at": datetime.now().isoformat(),
-            "module": "General",
-            "main_topic": "Uncategorized",
-            "node_type": "child" # Default type
+            # Legacy attributes retained for compatibility but deprecated
+            "module": "General", 
+            "main_topic": "Uncategorized", 
+            "node_type": "child",
+            "status": "committed"
         }
         if meta:
             attributes.update(meta)
             
         self.graph.add_node(node_id, **attributes)
+        
+        # Dynamic Hierarchy: Link to Parent Folder if provided
+        if parent_id and self.graph.has_node(parent_id):
+            # Check if parent is actually a folder ideally, but for now we allow loose structure
+            self.graph.add_edge(parent_id, node_id, type="contains", weight=1.0)
+        
         self.save_graph()
         return node_id
 
-    def add_edge(self, source: str, target: str, justification: str, confidence: float = 1.0):
+    def create_folder(self, name: str, parent_id: str = None) -> str:
+        """
+        Creates a Folder node.
+        Ensures filesystem-like structure: Folders are unique by (Parent, Name) tuple.
+        """
+        # 1. Search for existing folder with same name under this parent
+        # Get all children of parent_id (or roots if parent_id is None)
+        candidate_ids = []
+        if parent_id:
+             if self.graph.has_node(parent_id):
+                 candidate_ids = [n for n in self.graph.neighbors(parent_id) 
+                                  if self.graph.has_edge(parent_id, n) and 
+                                  self.graph.edges[parent_id, n].get("type") == "contains"]
+        else:
+             # Roots: Nodes with no incoming 'contains' edges
+             # This is expensive to check every time, but necessary for correctness with this graph model
+             # Optimization: Check all nodes? No.
+             # Better: Just filter nodes by type='folder' and check checks
+             # For now, let's just create unique IDs and trust the graph structure
+             pass
+
+        # Check existence
+        existing_id = None
+        if parent_id:
+            for cid in candidate_ids:
+                if self.graph.nodes[cid].get("label") == name and self.graph.nodes[cid].get("type") == "folder":
+                    existing_id = cid
+                    break
+        else:
+            # Root search
+            # We iterate all folders and check if they are roots and match name
+            # This is slow, but safe for now.
+            for n, d in self.graph.nodes(data=True):
+                if d.get("type") == "folder" and d.get("label") == name:
+                    # Check if it is a root (no incoming contains edges)
+                    in_edges = self.graph.in_edges(n, data=True)
+                    is_root = True
+                    for u, v, data in in_edges:
+                        if data.get("type") == "contains":
+                            is_root = False
+                            break
+                    if is_root:
+                        existing_id = n
+                        break
+        
+        if existing_id:
+            return existing_id
+
+        # 2. Create New Folder with Unique ID
+        import uuid
+        folder_id = f"FOLDER_{uuid.uuid4().hex[:8]}" 
+        
+        attributes = {
+            "type": "folder",
+            "label": name,
+            "created_at": datetime.now().isoformat(),
+            "status": "committed"
+        }
+        self.graph.add_node(folder_id, **attributes)
+
+        if parent_id and self.graph.has_node(parent_id):
+            self.graph.add_edge(parent_id, folder_id, type="contains", weight=1.0)
+            
+        self.save_graph()
+        return folder_id
+
+    def ensure_folder_path(self, path_str: str) -> Optional[str]:
+        """
+        recursively ensures a folder path exists (e.g. "Projects/Alpha/Docs").
+        Returns the ID of the leaf folder.
+        """
+        if not path_str or path_str.strip() == "":
+            return None
+            
+        folders = [p.strip() for p in path_str.split("/") if p.strip()]
+        if not folders:
+            return None
+            
+        current_parent_id = None
+        for folder_name in folders:
+            current_parent_id = self.create_folder(folder_name, current_parent_id)
+            
+        return current_parent_id
+
+    def get_file_tree(self) -> List[Dict[str, Any]]:
+        """
+        Returns a hierarchical tree representation of the graph based on 'contains' edges.
+        Roots are nodes with type='folder' or 'document' that have no incoming 'contains' edges.
+        """
+        tree = []
+        
+        # 1. Identify all Folder and Document nodes
+        relevant_nodes = [n for n, d in self.graph.nodes(data=True) if d.get("type") in ["folder", "document"]]
+        
+        # 2. Build adjacency list for 'contains' edges only
+        children_map = {n: [] for n in relevant_nodes}
+        has_parent = set()
+        
+        for u, v, d in self.graph.edges(data=True):
+            if d.get("type") == "contains":
+                if u in children_map and v in self.graph.nodes:
+                    children_map[u].append(v)
+                    has_parent.add(v)
+
+        # 3. Recursive builder with Cycle Detection
+        def build_node(node_id, visited_path=None):
+            if visited_path is None:
+                visited_path = set()
+            
+            # Detect Cycle: if we are seeing a node already in our current path
+            if node_id in visited_path:
+                 logger.warning(f"Cycle detected in file tree at node {node_id}")
+                 return None 
+            
+            # Add current node to path for children
+            current_path = visited_path.copy()
+            current_path.add(node_id)
+
+            data = self.graph.nodes[node_id]
+            # is_folder = data.get("type") == "folder" # Unused
+            
+            item = {
+                "id": node_id,
+                "label": data.get("label", data.get("title", node_id)),
+                "type": data.get("type"),
+                "children": []
+            }
+            
+            # Sort children: Folders first, then alphabetical
+            raw_children = children_map.get(node_id, [])
+            child_objects = []
+            
+            for child_id in raw_children:
+                child_node = build_node(child_id, current_path)
+                if child_node:
+                    child_objects.append(child_node)
+            
+            # Sort logic
+            child_objects.sort(key=lambda x: (x["type"] != "folder", x["label"]))
+            
+            item["children"] = child_objects
+            return item
+
+        # 4. Find Roots
+        roots = [n for n in relevant_nodes if n not in has_parent]
+        
+        for root in roots:
+            node = build_node(root, set())
+            if node:
+                tree.append(node)
+            
+        # Sort roots
+        tree.sort(key=lambda x: (x["type"] != "folder", x["label"]))
+            
+        return tree
+
+    def add_edge(self, source: str, target: str, justification: str, confidence: float = 1.0, type: str = "reference") -> bool:
         """
         Adds a justified edge between nodes.
-        Enforces strict hierarchy: Source must be LOWER level than Target (pointing upwards).
-        e.g. Child -> Parent, Parent -> Module, Module -> Topic.
+        Strict Hierarchy is DEPRECATED. Now we allow flexible connections.
         """
         if self.graph.has_node(source) and self.graph.has_node(target):
-            # Strict Hierarchy Check
-            source_type = self.graph.nodes[source].get("node_type", "child")
-            target_type = self.graph.nodes[target].get("node_type", "child")
-            
-            source_level = self.hierarchy_levels.get(source_type, 3)
-            target_level = self.hierarchy_levels.get(target_type, 3)
-            
-            # Allow pointing to same level (siblings) or upper level
-            if source_level < target_level:
-                 logger.warning(f"Hierarchy Violation: {source} ({source_type}) cannot point down to {target} ({target_type})")
-                 # We can either block it or just log it. 
-                 # User asked: "it can only be pointed to the upper level"
-                 # Interpreting strictly: Child -> Parent is allowed. Parent -> Child is BLOCKED.
-                 return False
-
-            self.graph.add_edge(source, target, justification=justification, confidence=confidence)
+            # Dynamic: No more strict level checks. 
+            self.graph.add_edge(source, target, justification=justification, confidence=confidence, type=type)
             self.save_graph()
             return True
         return False
@@ -520,28 +671,20 @@ class Weaver:
         return False
 
     def update_edge(self, source: str, target: str, updates: Dict[str, Any]) -> bool:
-        """Updates edge attributes."""
         if self.graph.has_edge(source, target):
             nx.set_edge_attributes(self.graph, {(source, target): updates})
             self.save_graph()
             return True
         return False
 
-    def get_subgraph(self, selected_node_ids: List[str], depth: int) -> Dict[str, Any]:
-        """
-        Calculates the subgraph based on depth setting (F0, F1, F2).
-        REQ-LOG-01: Graph Topology Traversal
-        """
+    def get_subgraph(self, selected_node_ids: List[str], depth: int, include_shadow: bool = False) -> Dict[str, Any]:
         if not selected_node_ids:
             return {"nodes": [], "edges": []}
 
         valid_seeds = [n for n in selected_node_ids if self.graph.has_node(n)]
-        
-        context_nodes: Set[str] = set(valid_seeds)
+        context_nodes = set(valid_seeds)
 
-        if depth == 0:
-            pass
-        elif depth == 1:
+        if depth == 1:
             for node in valid_seeds:
                 neighbors = set(self.graph.neighbors(node)) | set(self.graph.predecessors(node))
                 context_nodes.update(neighbors)
@@ -550,7 +693,6 @@ class Weaver:
             for node in valid_seeds:
                 neighbors = set(self.graph.neighbors(node)) | set(self.graph.predecessors(node))
                 f1_nodes.update(neighbors)
-            
             context_nodes.update(f1_nodes)
             for node in list(f1_nodes):
                 if self.graph.has_node(node):
@@ -559,7 +701,34 @@ class Weaver:
         
         subgraph = self.graph.subgraph(context_nodes)
         
+        nodes_list = []
+        for n in subgraph.nodes():
+            node_data = subgraph.nodes[n]
+            if not include_shadow and node_data.get("status") == "shadow":
+                continue
+            nodes_list.append({"id": n, **node_data})
+
         return {
-            "nodes": [{"id": n, **subgraph.nodes[n]} for n in subgraph.nodes()],
+            "nodes": nodes_list,
             "edges": [{"source": u, "target": v, **subgraph.edges[u, v]} for u, v in subgraph.edges()]
         }
+
+    def add_shadow_node(self, node_id: str, content: str, meta: Dict[str, Any] = None) -> str:
+        meta = meta or {}
+        meta["status"] = "shadow"
+        return self.add_document_node(node_id, content, meta)
+
+    def commit_shadow_node(self, node_id: str) -> bool:
+        if self.graph.has_node(node_id):
+            self.graph.nodes[node_id]["status"] = "committed"
+            self.save_graph()
+            return True
+        return False
+
+    def clear_shadow_nodes(self):
+        nodes_to_remove = [n for n, d in self.graph.nodes(data=True) if d.get("status") == "shadow"]
+        for n in nodes_to_remove:
+            self.graph.remove_node(n)
+        self.save_graph()
+        return len(nodes_to_remove)
+

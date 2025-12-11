@@ -3,7 +3,10 @@ import GraphCanvas from './components/GraphCanvas';
 import ChatInterface from './components/ChatInterface';
 import IngestionWidget from './components/IngestionWidget';
 import EdgeInspector from './components/EdgeInspector';
-import ContextRegistryPanel from './components/ContextRegistryPanel';
+import FileExplorer from './components/FileExplorer';
+
+
+
 import EdgeCreationModal from './components/EdgeCreationModal';
 import { getGraph, calculateContext, sendMessage, createEdge, getSettings, ingestText, manualSave, exportCanvas } from './api';
 import PromptConfigModal from './components/PromptConfigModal';
@@ -16,7 +19,7 @@ function App() {
   const [selectedNodeIds, setSelectedNodeIds] = useState([]);
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [depthMode, setDepthMode] = useState('F0');
-  const [contextData, setContextData] = useState(null); 
+  const [contextData, setContextData] = useState(null);
   const [chatHistory, setChatHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isIngestionOpen, setIsIngestionOpen] = useState(false);
@@ -43,70 +46,79 @@ function App() {
   });
 
   // Helper to find full node object from ID
-  const selectedNodeData = selectedNodeIds.length === 1 
-    ? graphData.nodes.find(n => n.id === selectedNodeIds[0]) 
+  const selectedNodeData = selectedNodeIds.length === 1
+    ? graphData.nodes.find(n => n.id === selectedNodeIds[0])
     : null;
 
+  // Refresh Triggers
+  const [fileSystemRefreshTrigger, setFileSystemRefreshTrigger] = useState(0);
+
   const fetchGraph = async () => {
-      try {
-        const data = await getGraph();
-        setGraphData(data);
-      } catch (error) {
-        console.error("Failed to load graph:", error);
-      }
-    };
+    try {
+      const data = await getGraph();
+      setGraphData(data);
+    } catch (error) {
+      console.error("Failed to load graph:", error);
+    }
+  };
+
+  // Unified Refresh: Updates Graph AND File System
+  const refreshSystem = useCallback(() => {
+    fetchGraph();
+    setFileSystemRefreshTrigger(prev => prev + 1);
+  }, []);
 
   const fetchSettings = async () => {
-      try {
-          const s = await getSettings();
-          setAppSettings(s || {});
-      } catch (error) {
-          console.error("Failed to load settings:", error);
-      }
+    try {
+      const s = await getSettings();
+      setAppSettings(s || {});
+    } catch (error) {
+      console.error("Failed to load settings:", error);
+    }
   };
 
   // Manual Save Handler
   // Manual Save Handler
   const handleManualSave = useCallback(async () => {
-      try {
-          const result = await manualSave();
-          setSaveStatus({
-              saved: true,
-              message: result.message,
-              timestamp: new Date().toLocaleTimeString()
-          });
-          // Clear status after 3 seconds
-          setTimeout(() => {
-              setSaveStatus({ saved: false, message: '', timestamp: null });
-          }, 3000);
-      } catch (error) {
-          console.error("Save failed:", error);
-          setSaveStatus({
-              saved: false,
-              message: error.message || "Save failed",
-              timestamp: null
-          });
-          setTimeout(() => {
-              setSaveStatus({ saved: false, message: '', timestamp: null });
-          }, 3000);
-      }
+    try {
+      const result = await manualSave();
+      setSaveStatus({
+        saved: true,
+        message: result.message,
+        timestamp: new Date().toLocaleTimeString()
+      });
+      // Clear status after 3 seconds
+      setTimeout(() => {
+        setSaveStatus({ saved: false, message: '', timestamp: null });
+      }, 3000);
+    } catch (error) {
+      console.error("Save failed:", error);
+      setSaveStatus({
+        saved: false,
+        message: error.message || "Save failed",
+        timestamp: null
+      });
+      setTimeout(() => {
+        setSaveStatus({ saved: false, message: '', timestamp: null });
+      }, 3000);
+    }
   }, []);
 
   const handleExport = useCallback(async () => {
-      try {
-          await exportCanvas();
-          setSaveStatus({
-              saved: true,
-              message: "Backup exported successfully",
-              timestamp: new Date().toLocaleTimeString()
-          });
-          setTimeout(() => {
-              setSaveStatus({ saved: false, message: '', timestamp: null });
-          }, 3000);
-      } catch (error) {
-          console.error("Export failed:", error);
-          alert("Failed to export backup: " + (error.message || "Unknown error"));
-      }
+    try {
+      await exportCanvas();
+      setSaveStatus({
+        saved: true,
+        message: "Backup exported successfully",
+        timestamp: new Date().toLocaleTimeString()
+      });
+      setTimeout(() => {
+        setSaveStatus({ saved: false, message: '', timestamp: null });
+      }, 3000);
+    } catch (error) {
+      console.error("Export failed:", error);
+      alert("Failed to export backup: " + (error.message || "Unknown error"));
+    }
   }, []);
 
   // Initial Load
@@ -123,62 +135,62 @@ function App() {
         handleManualSave();
       }
     };
-    
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleManualSave]);
 
   // Reload settings when modal closes (in case they changed)
   useEffect(() => {
-      if (!isSettingsOpen) {
-          fetchSettings();
-      }
+    if (!isSettingsOpen) {
+      fetchSettings();
+    }
   }, [isSettingsOpen]);
 
   // Handle Canvas Switch
   const handleCanvasSwitch = () => {
-      setChatHistory([]); // Clear chat history on switch
-      fetchGraph(); // Reload graph
-      fetchSettings(); // Reload settings (context might change)
+    setChatHistory([]); // Clear chat history on switch
+    fetchGraph(); // Reload graph
+    fetchSettings(); // Reload settings (context might change)
   };
 
   // Resizing Logic
   const startResizing = useCallback(() => {
-      setIsResizing(true);
+    setIsResizing(true);
   }, []);
 
   const stopResizing = useCallback(() => {
-      setIsResizing(false);
+    setIsResizing(false);
   }, []);
 
   const resize = useCallback((mouseEvent) => {
-      if (isResizing) {
-          const newWidth = (1 - mouseEvent.clientX / window.innerWidth) * 100;
-          if (newWidth > 20 && newWidth < 80) { // Limits
-              setChatWidth(newWidth);
-              if (isChatMaximized) setIsChatMaximized(false);
-          }
+    if (isResizing) {
+      const newWidth = (1 - mouseEvent.clientX / window.innerWidth) * 100;
+      if (newWidth > 20 && newWidth < 80) { // Limits
+        setChatWidth(newWidth);
+        if (isChatMaximized) setIsChatMaximized(false);
       }
+    }
   }, [isResizing, isChatMaximized]);
 
   useEffect(() => {
-      window.addEventListener("mousemove", resize);
-      window.addEventListener("mouseup", stopResizing);
-      return () => {
-          window.removeEventListener("mousemove", resize);
-          window.removeEventListener("mouseup", stopResizing);
-      };
+    window.addEventListener("mousemove", resize);
+    window.addEventListener("mouseup", stopResizing);
+    return () => {
+      window.removeEventListener("mousemove", resize);
+      window.removeEventListener("mouseup", stopResizing);
+    };
   }, [resize, stopResizing]);
 
   const toggleChatMaximize = () => {
-      if (isChatMaximized) {
-          setChatWidth(prevChatWidth.current);
-          setIsChatMaximized(false);
-      } else {
-          prevChatWidth.current = chatWidth;
-          setChatWidth(100);
-          setIsChatMaximized(true);
-      }
+    if (isChatMaximized) {
+      setChatWidth(prevChatWidth.current);
+      setIsChatMaximized(false);
+    } else {
+      prevChatWidth.current = chatWidth;
+      setChatWidth(100);
+      setIsChatMaximized(true);
+    }
   };
 
 
@@ -189,7 +201,7 @@ function App() {
       setIsLoading(false);
       return;
     }
-    
+
     setIsLoading(true);
     try {
       const result = await calculateContext(idsToUse, depthMode);
@@ -212,12 +224,12 @@ function App() {
   const handleChatButtonClick = useCallback(async () => {
     // Switch to multi-node mode first
     setChatMode('multi-node');
-    
+
     // Use selected nodes or current document node
-    const nodesToUse = selectedNodeIds.length > 0 
-      ? selectedNodeIds 
+    const nodesToUse = selectedNodeIds.length > 0
+      ? selectedNodeIds
       : (documentViewNode ? [documentViewNode.id] : []);
-    
+
     if (nodesToUse.length > 0) {
       // Clear document view when switching to multi-node mode
       setDocumentViewNode(null);
@@ -232,7 +244,7 @@ function App() {
         console.log("Please select nodes to create context");
       }
     }
-    
+
     // Ensure chat panel is visible (not minimized)
     if (isChatMaximized) {
       // Chat is already maximized, good
@@ -262,13 +274,13 @@ function App() {
   // Switch between document mode and multi-node mode
   const handleSwitchChatMode = useCallback(async (newMode) => {
     setChatMode(newMode);
-    
+
     if (newMode === 'multi-node') {
       // Switch to multi-node mode: use selected nodes or current document node
-      const nodesToUse = selectedNodeIds.length > 0 
-        ? selectedNodeIds 
+      const nodesToUse = selectedNodeIds.length > 0
+        ? selectedNodeIds
         : (documentViewNode ? [documentViewNode.id] : []);
-      
+
       if (nodesToUse.length > 0) {
         setDocumentViewNode(null); // Clear document view
         await handleContextCalculation(nodesToUse);
@@ -290,11 +302,11 @@ function App() {
   const handleSendMessage = async (prompt) => {
     // Get current session ID
     let sessionId = contextData?.session_id;
-    
+
     // If no session exists, create one based on current mode
     if (!sessionId) {
       let nodesToUse = [];
-      
+
       if (documentViewNode) {
         // Document mode: use the document node
         nodesToUse = [documentViewNode.id];
@@ -310,12 +322,12 @@ function App() {
         alert("Please select nodes first, then click Chat button to create context.");
         return;
       }
-      
+
       // Create context with selected nodes
       try {
         setIsLoading(true);
         const result = await calculateContext(nodesToUse, depthMode);
-        
+
         // Use the result directly, not the state (which may not be updated yet)
         if (!result?.session_id) {
           console.error("Failed to create chat session");
@@ -323,7 +335,7 @@ function App() {
           alert("Failed to create chat context. Please try again.");
           return;
         }
-        
+
         sessionId = result.session_id;
         setContextData(result);
         setChatHistory([]);
@@ -335,17 +347,17 @@ function App() {
         return;
       }
     }
-    
+
     // Double check we have a session_id before proceeding
     if (!sessionId) {
       console.error("No session_id available");
       return;
     }
-    
+
     // Optimistic UI update
     const tempMsg = { role: 'user', content: prompt, timestamp: new Date().toISOString() };
     setChatHistory(prev => [...prev, tempMsg]);
-    
+
     setIsLoading(true);
     try {
       const responseMsg = await sendMessage(sessionId, prompt);
@@ -385,7 +397,7 @@ function App() {
     const depthMap = { 'F0': 'F1', 'F1': 'F2', 'F2': 'F2' };
     const newDepth = depthMap[depthMode] || 'F2';
     setDepthMode(newDepth);
-    
+
     setIsLoading(true);
     try {
       // Recalculate context with new depth
@@ -410,145 +422,145 @@ function App() {
   };
 
   const handleTurnToDoc = async (content) => {
-      if (!content) return;
-      try {
-          await ingestText(content, "AI Insights", "Uncategorized");
-          fetchGraph();
-          alert("AI Response saved as a new document node!");
-      } catch (e) {
-          console.error("Failed to save doc:", e);
-          alert("Failed to save document.");
-      }
+    if (!content) return;
+    try {
+      await ingestText(content, "AI Insights", "Uncategorized");
+      fetchGraph();
+      alert("AI Response saved as a new document node!");
+    } catch (e) {
+      console.error("Failed to save doc:", e);
+      alert("Failed to save document.");
+    }
   };
 
   // Callback for node selection to prevent flicker loop
   const handleSelectionChange = useCallback((ids) => {
-      setSelectedNodeIds(ids);
-      if (ids.length > 0) {
-          setSelectedEdge(null);
-          // In document mode: Open single document in chat section
-          // In multi-node mode: Don't auto-calculate context on selection
-          // User must click Chat button to create context (prevents flickering)
-          if (chatMode === 'document') {
-              const nodeData = graphData.nodes.find(n => n.id === ids[0]);
-              if (nodeData) {
-                  handleOpenDocumentView(nodeData);
-              }
-          }
-          // In multi-node mode, we don't auto-calculate context
-          // User needs to click Chat button explicitly to avoid flickering
-      } else {
-          // Clear selection: Close document view only if it matches
-          // (Don't close if user is just deselecting)
+    setSelectedNodeIds(ids);
+    if (ids.length > 0) {
+      setSelectedEdge(null);
+      // In document mode: Open single document in chat section
+      // In multi-node mode: Don't auto-calculate context on selection
+      // User must click Chat button to create context (prevents flickering)
+      if (chatMode === 'document') {
+        const nodeData = graphData.nodes.find(n => n.id === ids[0]);
+        if (nodeData) {
+          handleOpenDocumentView(nodeData);
+        }
       }
+      // In multi-node mode, we don't auto-calculate context
+      // User needs to click Chat button explicitly to avoid flickering
+    } else {
+      // Clear selection: Close document view only if it matches
+      // (Don't close if user is just deselecting)
+    }
   }, [graphData.nodes, chatMode, handleOpenDocumentView]);
 
   const handleEdgeClick = useCallback((event, edge) => {
-      event.stopPropagation();
-      setSelectedEdge(edge);
-      setSelectedNodeIds([]); 
+    event.stopPropagation();
+    setSelectedEdge(edge);
+    setSelectedNodeIds([]);
   }, []);
 
   const handleConnectRequest = useCallback((params) => {
-      setEdgeModalState({
-          isOpen: true,
-          source: params.source,
-          target: params.target
-      });
+    setEdgeModalState({
+      isOpen: true,
+      source: params.source,
+      target: params.target
+    });
   }, []);
 
   const handleEdgeConfirm = async (justification) => {
-      const { source, target } = edgeModalState;
-      if (!source || !target) return;
+    const { source, target } = edgeModalState;
+    if (!source || !target) return;
 
-      try {
-          await createEdge(source, target, justification);
-          setEdgeModalState({ isOpen: false, source: null, target: null });
-          fetchGraph(); 
-      } catch (error) {
-          console.error("Failed to create edge:", error);
-          alert(`Failed to create edge: ${error.response?.data?.detail || error.message}`);
-      }
+    try {
+      await createEdge(source, target, justification);
+      setEdgeModalState({ isOpen: false, source: null, target: null });
+      refreshSystem();
+    } catch (error) {
+      console.error("Failed to create edge:", error);
+      alert(`Failed to create edge: ${error.response?.data?.detail || error.message}`);
+    }
   };
 
   return (
     <div className="flex h-screen w-screen bg-black text-white overflow-hidden font-sans">
-      
+
       {/* LEFT PANEL: Graph (Dynamic Width) */}
-      <div 
-        style={{ width: isChatMaximized ? '0%' : `${100 - chatWidth}%` }} 
+      <div
+        style={{ width: isChatMaximized ? '0%' : `${100 - chatWidth}%` }}
         className={`h-full relative transition-all duration-300 ${isChatMaximized ? 'opacity-0 overflow-hidden' : 'opacity-100'}`}
       >
         {/* Header Actions - Absolute positioned on top of graph */}
         <div className="absolute top-6 right-6 z-20 flex flex-col items-end gap-2">
-            {/* Save Status Indicator */}
-            {saveStatus.saved && (
-                <div className="bg-green-600/90 backdrop-blur text-white px-3 py-1.5 rounded-lg shadow-lg border border-green-500/30 flex items-center gap-2 text-xs font-medium animate-in fade-in slide-in-from-top-2">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>{saveStatus.message}</span>
-                    {saveStatus.timestamp && <span className="text-green-200">({saveStatus.timestamp})</span>}
-                </div>
-            )}
-            
-            <div className="flex gap-2">
-                <button 
-                    onClick={handleManualSave}
-                    className="bg-green-600/80 backdrop-blur hover:bg-green-500 text-white p-2 rounded-xl shadow-lg border border-green-500/30 transition-colors"
-                    title="Save All Data (Ctrl+S)"
-                >
-                    <Save className="w-5 h-5" />
-                </button>
-                <button 
-                    onClick={handleExport}
-                    className="bg-purple-600/80 backdrop-blur hover:bg-purple-500 text-white p-2 rounded-xl shadow-lg border border-purple-500/30 transition-colors"
-                    title="Export Backup (ZIP)"
-                >
-                    <Download className="w-5 h-5" />
-                </button>
-                <button 
-                    onClick={() => setIsCanvasManagerOpen(true)}
-                    className="bg-gray-900/80 backdrop-blur hover:bg-gray-800 text-gray-300 p-2 rounded-xl shadow-lg border border-white/10 transition-colors"
-                    title="Manage Canvases"
-                >
-                    <LayoutGrid className="w-5 h-5" />
-                </button>
-                <button 
-                    onClick={() => setIsSettingsOpen(true)}
-                    className="bg-gray-900/80 backdrop-blur hover:bg-gray-800 text-gray-300 p-2 rounded-xl shadow-lg border border-white/10 transition-colors"
-                    title="System Settings"
-                >
-                    <Sliders className="w-5 h-5" />
-                </button>
-                <button 
-                    onClick={() => setIsRegistryOpen(!isRegistryOpen)}
-                    className={`p-2 rounded-xl shadow-lg border border-white/10 transition-colors ${isRegistryOpen ? 'bg-blue-600 text-white' : 'bg-gray-900/80 backdrop-blur hover:bg-gray-800 text-gray-300'}`}
-                    title="Context Registry"
-                >
-                    <BookOpen className="w-5 h-5" />
-                </button>
-                <button 
-                    onClick={() => setIsPromptConfigOpen(true)}
-                    className="bg-gray-900/80 backdrop-blur hover:bg-gray-800 text-gray-300 p-2 rounded-xl shadow-lg border border-white/10 transition-colors"
-                    title="Prompt Configuration"
-                >
-                    <Settings className="w-5 h-5" />
-                </button>
+          {/* Save Status Indicator */}
+          {saveStatus.saved && (
+            <div className="bg-green-600/90 backdrop-blur text-white px-3 py-1.5 rounded-lg shadow-lg border border-green-500/30 flex items-center gap-2 text-xs font-medium animate-in fade-in slide-in-from-top-2">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>{saveStatus.message}</span>
+              {saveStatus.timestamp && <span className="text-green-200">({saveStatus.timestamp})</span>}
             </div>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={handleManualSave}
+              className="bg-green-600/80 backdrop-blur hover:bg-green-500 text-white p-2 rounded-xl shadow-lg border border-green-500/30 transition-colors"
+              title="Save All Data (Ctrl+S)"
+            >
+              <Save className="w-5 h-5" />
+            </button>
+            <button
+              onClick={handleExport}
+              className="bg-purple-600/80 backdrop-blur hover:bg-purple-500 text-white p-2 rounded-xl shadow-lg border border-purple-500/30 transition-colors"
+              title="Export Backup (ZIP)"
+            >
+              <Download className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => setIsCanvasManagerOpen(true)}
+              className="bg-gray-900/80 backdrop-blur hover:bg-gray-800 text-gray-300 p-2 rounded-xl shadow-lg border border-white/10 transition-colors"
+              title="Manage Canvases"
+            >
+              <LayoutGrid className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="bg-gray-900/80 backdrop-blur hover:bg-gray-800 text-gray-300 p-2 rounded-xl shadow-lg border border-white/10 transition-colors"
+              title="System Settings"
+            >
+              <Sliders className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => setIsRegistryOpen(!isRegistryOpen)}
+              className={`p-2 rounded-xl shadow-lg border border-white/10 transition-colors ${isRegistryOpen ? 'bg-blue-600 text-white' : 'bg-gray-900/80 backdrop-blur hover:bg-gray-800 text-gray-300'}`}
+              title="Context Registry"
+            >
+              <BookOpen className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => setIsPromptConfigOpen(true)}
+              className="bg-gray-900/80 backdrop-blur hover:bg-gray-800 text-gray-300 p-2 rounded-xl shadow-lg border border-white/10 transition-colors"
+              title="Prompt Configuration"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Floating Action Button for Upload */}
         {!isIngestionOpen && (
-            <button 
+          <button
             onClick={() => setIsIngestionOpen(true)}
             className="absolute bottom-8 right-8 z-20 bg-blue-600 hover:bg-blue-500 text-white rounded-full p-4 shadow-2xl transition-transform hover:scale-105"
             title="Ingest Document"
-            >
+          >
             <PlusCircle className="w-6 h-6" />
-            </button>
+          </button>
         )}
 
-        <GraphCanvas 
-          nodes={graphData.nodes} 
+        <GraphCanvas
+          nodes={graphData.nodes}
           edges={graphData.edges}
           selectedNodeIds={selectedNodeIds}
           onSelectionChange={handleSelectionChange}
@@ -558,47 +570,58 @@ function App() {
           depthMode={depthMode}
           onDepthChange={setDepthMode}
           onTriggerContext={handleChatButtonClick}
-          onRefresh={fetchGraph}
+          onRefresh={refreshSystem}
         />
 
         <EdgeInspector
-            edge={selectedEdge}
-            onClose={() => setSelectedEdge(null)}
-            onRefresh={fetchGraph}
+          edge={selectedEdge}
+          onClose={() => setSelectedEdge(null)}
+          onRefresh={refreshSystem}
         />
 
-        <ContextRegistryPanel 
-            isOpen={isRegistryOpen} 
-            onClose={() => setIsRegistryOpen(false)} 
+        <FileExplorer
+          isOpen={isRegistryOpen}
+          onClose={() => setIsRegistryOpen(false)}
+          refreshTrigger={fileSystemRefreshTrigger}
+          onNodeSelect={(node) => {
+            console.log("Selected node:", node);
+            // Future: canvasRef.current.focusNode(node.id)
+            // If it's a document, we might want to open it
+            if (node.type === 'document') {
+              // Determine if we should open in document view
+              // For now, we reuse the selection logic
+              handleSelectionChange([node.id]);
+            }
+          }}
         />
 
         <EdgeCreationModal
-            isOpen={edgeModalState.isOpen}
-            onClose={() => setEdgeModalState({ isOpen: false, source: null, target: null })}
-            onConfirm={handleEdgeConfirm}
-            sourceId={edgeModalState.source}
-            targetId={edgeModalState.target}
-            autoAssistEnabled={appSettings.manual_connection_ai_assist}
+          isOpen={edgeModalState.isOpen}
+          onClose={() => setEdgeModalState({ isOpen: false, source: null, target: null })}
+          onConfirm={handleEdgeConfirm}
+          sourceId={edgeModalState.source}
+          targetId={edgeModalState.target}
+          autoAssistEnabled={appSettings.manual_connection_ai_assist}
         />
       </div>
-      
+
       {/* DRAG HANDLE */}
       {!isChatMaximized && (
-        <div 
-            className="w-1 hover:w-1.5 h-full bg-[#1C1C1E] hover:bg-blue-500/50 cursor-col-resize z-30 transition-all duration-150 flex items-center justify-center group"
-            onMouseDown={startResizing}
+        <div
+          className="w-1 hover:w-1.5 h-full bg-[#1C1C1E] hover:bg-blue-500/50 cursor-col-resize z-30 transition-all duration-150 flex items-center justify-center group"
+          onMouseDown={startResizing}
         >
-            <div className="h-8 w-0.5 bg-gray-600 group-hover:bg-white rounded-full" />
+          <div className="h-8 w-0.5 bg-gray-600 group-hover:bg-white rounded-full" />
         </div>
       )}
 
       {/* RIGHT PANEL: Chat (Dynamic Width) */}
-      <div 
-        style={{ width: `${chatWidth}%` }} 
+      <div
+        style={{ width: `${chatWidth}%` }}
         className="h-full flex flex-col relative transition-all duration-300 z-10"
       >
-        <ChatInterface 
-          history={chatHistory} 
+        <ChatInterface
+          history={chatHistory}
           onSendMessage={handleSendMessage}
           dominantModule={contextData?.dominant_module}
           contextCount={contextData?.context_nodes?.length || (documentViewNode ? 1 : 0)}
@@ -616,15 +639,15 @@ function App() {
         />
       </div>
 
-      <IngestionWidget 
-        isOpen={isIngestionOpen} 
-        onClose={() => setIsIngestionOpen(false)} 
+      <IngestionWidget
+        isOpen={isIngestionOpen}
+        onClose={() => setIsIngestionOpen(false)}
         onUploadSuccess={fetchGraph}
       />
 
-      <PromptConfigModal 
-        isOpen={isPromptConfigOpen} 
-        onClose={() => setIsPromptConfigOpen(false)} 
+      <PromptConfigModal
+        isOpen={isPromptConfigOpen}
+        onClose={() => setIsPromptConfigOpen(false)}
       />
 
       <SettingsModal

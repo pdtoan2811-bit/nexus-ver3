@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -16,12 +16,21 @@ load_dotenv(override=True)
 
 from core.graph_logic import Weaver
 from core.chat_bridge import ChatBridge
+from core.api_agents import router as agent_router, AgentManager
+import core.api_agents
+from core.api_prompts import router as prompt_router
+import core.api_prompts
+from core.prompts import PromptRegistry
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("NexusAPI")
 
 app = FastAPI(title="Nexus Core API", version="2.0.4")
+
+# Include Routers
+app.include_router(agent_router)
+app.include_router(prompt_router)
 
 # CORS
 app.add_middleware(
@@ -35,6 +44,11 @@ app.add_middleware(
 # Initialize Core Components
 weaver = Weaver()
 chat_bridge = ChatBridge(weaver)
+prompt_registry = PromptRegistry()
+
+# Initialize Managers/Routers
+core.api_agents.agent_manager = AgentManager(weaver, prompt_registry)
+core.api_prompts.prompt_registry = prompt_registry
 
 # In-Memory Session Storage (Could be moved to file as well for persistence)
 # We will now use this only for active sessions, but persist them on creation/update
@@ -64,9 +78,16 @@ class ExpansionRequest(BaseModel):
 
 class TextIngestRequest(BaseModel):
     content: str
+    folder: Optional[str] = None
+    parent_id: Optional[str] = None
     module: str = "General"
     main_topic: str = "Uncategorized"
 
+class EdgeRequest(BaseModel):
+    source: str
+    target: str
+    justification: str
+    type: str = "reference"
 class CanvasCreateRequest(BaseModel):
     name: str
 
@@ -104,11 +125,19 @@ def delete_canvas(canvas_id: str):
     raise HTTPException(status_code=400, detail="Cannot delete default canvas or canvas not found")
 
 @app.get("/api/v2/graph")
-def get_full_graph():
+def get_full_graph(include_shadow: bool = False):
     """Returns the full graph for initial rendering."""
+    # We use get_subgraph with simple depth logic or just iterate nodes manually 
+    # But since we added filter logic to get_subgraph in Weaver, let's use that or replicate it.
+    # Actually, weaver.graph.nodes() is direct access.
+    
     nodes = []
     for n in weaver.graph.nodes():
         node_data = dict(weaver.graph.nodes[n])
+        # Filter shadow nodes if not requested
+        if not include_shadow and node_data.get("status") == "shadow":
+            continue
+            
         # Include position if it exists
         if "position" in node_data:
             nodes.append({"id": n, **node_data})
@@ -245,141 +274,165 @@ def export_canvas():
         logger.error(f"Export failed: {e}")
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
+async def run_auto_linking(node_id: str, final_meta: Dict[str, Any]):
+    """Background task for auto-linking."""
+    try:
+        candidates = weaver.get_node_summaries(exclude_id=node_id)
+        current_node_summary = {"id": node_id, **final_meta}
+        suggestions = await chat_bridge.detect_relationships(current_node_summary, candidates)
+        for link in suggestions:
+            target = link.get("target_id")
+            justification = link.get("justification")
+            if target and justification:
+                weaver.add_edge(node_id, target, justification, link.get("confidence", 0.5))
+        logger.info(f"Auto-linking completed for {node_id}")
+    except Exception as e:
+        logger.error(f"Auto-linking failed for {node_id}: {e}")
+
 @app.post("/api/v2/ingest/text")
-async def ingest_text(payload: TextIngestRequest):
+async def ingest_text(payload: TextIngestRequest, background_tasks: BackgroundTasks):
     """
     Ingests raw text or a YouTube URL.
     """
     start_time = datetime.now()
     content = payload.content.strip()
-    
-    # Check for YouTube URL
-    is_youtube = content.startswith("https://www.youtube.com/") or content.startswith("https://youtu.be/")
-    
-    node_title = "Text Note"
-    final_content = content
-    
-    # Extract Metadata
-    metadata = {} # Initialize metadata dict
-    
-    # 1. Try Web Scraping first if generic URL (and not YouTube)
-    if not is_youtube and (content.startswith("http://") or content.startswith("https://")):
-        try:
-            logger.info(f"Scraping webpage: {content}")
-            from core.scraper import scrape_webpage
-            scraped_data = scrape_webpage(content)
-            
-            # Update content and title from scrape
-            final_content = scraped_data["content"]
-            node_title = scraped_data["title"]
-            
-            # Store metadata
-            metadata["title"] = scraped_data["title"]
-            if scraped_data["description"]:
-                metadata["summary"] = scraped_data["description"]
-            if scraped_data["thumbnail"]:
-                metadata["thumbnail"] = scraped_data["thumbnail"]
-                
-            # Append source URL to content for reference
-            final_content = f"Source: {content}\n\n{final_content}"
-            
-        except Exception as e:
-            logger.error(f"Web scraping failed: {e}")
-            final_content = f"Source: {content}\n\n(Scraping Failed: {str(e)})"
-
-    # 2. Handle YouTube specific logic
-    if is_youtube:
-        logger.info(f"Detected YouTube URL: {content}")
-        try:
-            # Analyze video
-            analysis = await chat_bridge.analyze_video(content)
-            final_content = f"Source: {content}\n\nAnalysis:\n{analysis}"
-            node_title = "Video Analysis"
-            
-            # Extract Video ID for metadata
-            import re
-            # Match standard, short, and embed URLs
-            video_id_match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", content)
-            if video_id_match:
-                 metadata["video_id"] = video_id_match.group(1)
-                 metadata["thumbnail"] = f"https://img.youtube.com/vi/{metadata['video_id']}/mqdefault.jpg"
-                 
-        except Exception as e:
-            logger.error(f"Video analysis failed: {e}")
-            final_content = f"Source: {content}\n\n(Analysis Failed: {str(e)})"
-    
-    # Extract Metadata via AI (Refinement)
-    # We send the final content (scraped text or video analysis) to Gemini for deeper structure (tags, module, better summary)
-    extracted_meta = await chat_bridge.extract_metadata(final_content)
-    
-    # --- Two-Way Interaction: Update Registry ---
-    if extracted_meta.get("proposed_new_topic"):
-        p = extracted_meta["proposed_new_topic"]
-        weaver.registry.update_structure(p["name"], description=p.get("description", ""))
-        
-    if extracted_meta.get("proposed_new_module"):
-        p = extracted_meta["proposed_new_module"]
-        weaver.registry.update_structure(p["topic"], module_name=p["name"], description=p.get("description", ""))
-    
-    # Cleanup metadata (remove proposal keys from node data)
-    extracted_meta.pop("proposed_new_topic", None)
-    extracted_meta.pop("proposed_new_module", None)
-    # ---------------------------------------------
-    
-    # Merge AI metadata but preserve Scraped metadata if it's better (like Title)
-    # Actually, AI might generate a better summary than OG:description, so we can overwrite summary.
-    # But let's keep Title from OG if available as it's authoritative.
-    
-    current_title = metadata.get("title")
-    metadata.update(extracted_meta)
-    
-    if current_title and current_title != "Text Note":
-        metadata["title"] = current_title
-    
-    # If title wasn't extracted well, give it a timestamped default
-    if not metadata.get("title") or metadata.get("title") == "Unknown Title":
-        ts = datetime.now().strftime("%H:%M:%S")
-        metadata["title"] = f"{node_title} {ts}"
-        
-    final_meta = {
-        "module": payload.module if payload.module != "General" else metadata.get("module", "General"),
-        "main_topic": payload.main_topic if payload.main_topic != "Uncategorized" else metadata.get("main_topic", "Uncategorized"),
-        **metadata
-    }
-    
-    # Create Node ID
-    # Use title as base for ID if available, else random
-    base_id = metadata.get("title", "NOTE").replace(" ", "_").upper()[:20]
-    node_id = f"{base_id}_{uuid4().hex[:4]}"
+    try:
+        # Validate image type
+        pass
+    except Exception as e:
+        pass
     
     try:
-        weaver.add_document_node(node_id, final_content, final_meta)
+        with open("debug_log.txt", "a") as f:
+            f.write(f"Ingest started: content={content[:50]}\n")
+            
+        # Check for YouTube URL
+        is_youtube = content.startswith("https://www.youtube.com/") or content.startswith("https://youtu.be/")
         
-        # --- AUTO-LINKING ---
-        try:
-            candidates = weaver.get_node_summaries(exclude_id=node_id)
-            current_node_summary = {"id": node_id, **final_meta}
-            suggestions = await chat_bridge.detect_relationships(current_node_summary, candidates)
-            for link in suggestions:
-                target = link.get("target_id")
-                justification = link.get("justification")
-                if target and justification:
-                    weaver.add_edge(node_id, target, justification, link.get("confidence", 0.5))
-        except Exception as e:
-            logger.error(f"Auto-linking failed: {e}")
+        node_title = "Text Note"
+        final_content = content
+        
+        # Extract Metadata
+        metadata = {} # Initialize metadata dict
+        
+        # 1. Try Web Scraping first if generic URL (and not YouTube)
+        if not is_youtube and (content.startswith("http://") or content.startswith("https://")):
+            try:
+                # logger.info(f"Scraping webpage: {content}")
+                from core.scraper import scrape_webpage
+                scraped_data = scrape_webpage(content)
+                
+                # Update content and title from scrape
+                final_content = scraped_data["content"]
+                node_title = scraped_data["title"]
+                
+                # Store metadata
+                metadata["title"] = scraped_data["title"]
+                if scraped_data["description"]:
+                    metadata["summary"] = scraped_data["description"]
+                if scraped_data["thumbnail"]:
+                    metadata["thumbnail"] = scraped_data["thumbnail"]
+                    
+                # Append source URL to content for reference
+                final_content = f"Source: {content}\n\n{final_content}"
+                
+            except Exception as e:
+                logger.error(f"Web scraping failed: {e}")
+                final_content = f"Source: {content}\n\n(Scraping Failed: {str(e)})"
+
+        # 2. Handle YouTube specific logic
+        if is_youtube:
+            # logger.info(f"Detected YouTube URL: {content}")
+            try:
+                # Analyze video
+                analysis = await chat_bridge.analyze_video(content)
+                final_content = f"Source: {content}\n\nAnalysis:\n{analysis}"
+                node_title = "Video Analysis"
+                
+                # Extract Video ID for metadata
+                import re
+                # Match standard, short, and embed URLs
+                video_id_match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", content)
+                if video_id_match:
+                     metadata["video_id"] = video_id_match.group(1)
+                     metadata["thumbnail"] = f"https://img.youtube.com/vi/{metadata['video_id']}/mqdefault.jpg"
+                     
+            except Exception as e:
+                logger.error(f"Video analysis failed: {e}")
+                final_content = f"Source: {content}\n\n(Analysis Failed: {str(e)})"
+        
+        with open("debug_log.txt", "a") as f:
+            f.write("Preprocessing done. Extracting metadata...\n")
+
+        # Extract Metadata via AI (Refinement)
+        extracted_meta = await chat_bridge.extract_metadata(final_content)
+        
+        with open("debug_log.txt", "a") as f:
+            f.write(f"Metadata extracted: {extracted_meta}\n")
+        
+        # --- Dynamic Graph: Create Folders ---
+        folder_path = payload.folder if payload.folder else extracted_meta.get("folder")
+        
+        parent_id = None
+        if payload.parent_id:
+            parent_id = payload.parent_id
+        elif folder_path:
+            with open("debug_log.txt", "a") as f:
+                f.write(f"Ensuring folder path: {folder_path}\n")
+            parent_id = weaver.ensure_folder_path(folder_path)
+            with open("debug_log.txt", "a") as f:
+                f.write(f"Parent ID: {parent_id}\n")
+        # ---------------------------------------------
+        
+        # Merge AI metadata but preserve Scraped metadata if it's better (like Title)
+        current_title = metadata.get("title")
+        metadata.update(extracted_meta)
+        
+        if current_title and current_title != "Text Note":
+            metadata["title"] = current_title
+        
+        # If title wasn't extracted well, give it a timestamped default
+        if not metadata.get("title") or metadata.get("title") == "Unknown Title":
+            ts = datetime.now().strftime("%H:%M:%S")
+            metadata["title"] = f"{node_title} {ts}"
+            
+        final_meta = {
+            # Deprecated legacy fields
+            "module": "General",
+            "main_topic": "Uncategorized",
+            **metadata
+        }
+        
+        # Create Node ID
+        base_id = metadata.get("title", "NOTE").replace(" ", "_").upper()[:20]
+        from uuid import uuid4
+        import uuid
+        node_id = f"{base_id}_{uuid.uuid4().hex[:4]}"
+        
+        with open("debug_log.txt", "a") as f:
+            f.write(f"Adding document node: {node_id}\n")
+
+        weaver.add_document_node(node_id, final_content, final_meta, parent_id=parent_id)
+        
+        # --- AUTO-LINKING (Background) ---
+        background_tasks.add_task(run_auto_linking, node_id, final_meta)
         # --------------------
         
         return {"status": "success", "node_id": node_id, "message": "Content ingested"}
         
     except Exception as e:
-        logger.error(f"Failed to ingest text: {e}")
+        with open("debug_log.txt", "a") as f:
+            f.write(f"ERROR: {str(e)}\n")
+        logger.error(f"Unexpected Upload Error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/v2/ingest/upload")
 async def upload_document(
     file: UploadFile = File(...), 
+    folder: Optional[str] = Form(None),
     module: str = Form("General"),
-    main_topic: str = Form("Uncategorized")
+    main_topic: str = Form("Uncategorized"),
+    background_tasks: BackgroundTasks = BackgroundTasks()
 ):
     """
     Ingests a file (TXT/MD) and creates a node.
@@ -404,45 +457,24 @@ async def upload_document(
         metadata = await chat_bridge.extract_metadata(content_str)
         logger.info(f"Extracted Metadata: {metadata}")
         
-        # --- Two-Way Interaction: Update Registry ---
-        if metadata.get("proposed_new_topic"):
-            p = metadata["proposed_new_topic"]
-            weaver.registry.update_structure(p["name"], description=p.get("description", ""))
-            
-        if metadata.get("proposed_new_module"):
-            p = metadata["proposed_new_module"]
-            weaver.registry.update_structure(p["topic"], module_name=p["name"], description=p.get("description", ""))
-        
-        # Cleanup metadata (remove proposal keys from node data)
-        metadata.pop("proposed_new_topic", None)
-        metadata.pop("proposed_new_module", None)
-        # ---------------------------------------------
+        # --- Dynamic Graph: Create Folders ---
+        # --- Dynamic Graph: Create Folders ---
+        folder_path = folder if folder else metadata.get("folder")
+        parent_id = weaver.ensure_folder_path(folder_path) if folder_path else None
         
         final_meta = {
-            "module": module if module != "General" else metadata.get("module", "General"),
-            "main_topic": main_topic if main_topic != "Uncategorized" else metadata.get("main_topic", "Uncategorized"),
+            # Deprecated fields
+            "module": "General", 
+            "main_topic": "Uncategorized",
             **metadata
         }
         
         # Add to graph
         try:
-            node_id = weaver.add_document_node(filename, content_str, final_meta)
+            node_id = weaver.add_document_node(filename, content_str, final_meta, parent_id=parent_id)
             
-            # --- AUTO-LINKING LOGIC (Ingestion Trigger) ---
-            try:
-                candidates = weaver.get_node_summaries(exclude_id=node_id)
-                current_node_summary = {
-                    "id": node_id, 
-                    **final_meta
-                }
-                suggestions = await chat_bridge.detect_relationships(current_node_summary, candidates)
-                for link in suggestions:
-                    target = link.get("target_id")
-                    justification = link.get("justification")
-                    if target and justification:
-                        weaver.add_edge(node_id, target, justification, link.get("confidence", 0.5))
-            except Exception as e:
-                logger.error(f"Ingestion auto-linking failed: {e}")
+            # --- AUTO-LINKING LOGIC (Background) ---
+            background_tasks.add_task(run_auto_linking, node_id, final_meta)
             # ----------------------------------------------
             
         except Exception as e:
@@ -463,6 +495,7 @@ async def upload_document(
 @app.post("/api/v2/ingest/image")
 async def upload_image(
     file: UploadFile = File(...), 
+    folder: Optional[str] = Form(None),
     module: str = Form("General"),
     main_topic: str = Form("Uncategorized")
 ):
@@ -518,24 +551,16 @@ async def upload_image(
         # Set thumbnail path (relative to serve from backend)
         metadata["thumbnail"] = f"/api/v2/thumbnails/{thumbnail_filename}"
         
-        # --- Two-Way Interaction: Update Registry ---
-        if analysis_result.get("proposed_new_topic"):
-            p = analysis_result["proposed_new_topic"]
-            weaver.registry.update_structure(p["name"], description=p.get("description", ""))
-            
-        if analysis_result.get("proposed_new_module"):
-            p = analysis_result["proposed_new_module"]
-            weaver.registry.update_structure(p["topic"], module_name=p["name"], description=p.get("description", ""))
+        # --- Dynamic Graph: Create Folders ---
+        # --- Dynamic Graph: Create Folders ---
+        folder_path = folder if folder else metadata.get("folder")
+        parent_id = weaver.ensure_folder_path(folder_path) if folder_path else None
         
-        # Cleanup metadata
-        analysis_result.pop("proposed_new_topic", None)
-        analysis_result.pop("proposed_new_module", None)
-        # ---------------------------------------------
-        
-        # Override with form values if provided
+        # Override with form values if provided (legacy)
         final_meta = {
-            "module": module if module != "General" else metadata.get("module", "General"),
-            "main_topic": main_topic if main_topic != "Uncategorized" else metadata.get("main_topic", "Uncategorized"),
+             # Deprecated fields
+            "module": "General",
+            "main_topic": "Uncategorized",
             **metadata
         }
         
@@ -545,20 +570,10 @@ async def upload_image(
         
         # Add to graph
         try:
-            weaver.add_document_node(node_id, content, final_meta)
+            weaver.add_document_node(node_id, content, final_meta, parent_id=parent_id)
             
-            # --- AUTO-LINKING ---
-            try:
-                candidates = weaver.get_node_summaries(exclude_id=node_id)
-                current_node_summary = {"id": node_id, **final_meta}
-                suggestions = await chat_bridge.detect_relationships(current_node_summary, candidates)
-                for link in suggestions:
-                    target = link.get("target_id")
-                    justification = link.get("justification")
-                    if target and justification:
-                        weaver.add_edge(node_id, target, justification, link.get("confidence", 0.5))
-            except Exception as e:
-                logger.error(f"Auto-linking failed: {e}")
+            # --- AUTO-LINKING (Background) ---
+            background_tasks.add_task(run_auto_linking, node_id, final_meta)
             # --------------------
             
         except Exception as e:
@@ -575,6 +590,25 @@ async def upload_image(
     except Exception as e:
         logger.error(f"Unexpected Image Upload Error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+class FolderRequest(BaseModel):
+    name: str
+    parent_id: Optional[str] = None
+
+@app.post("/api/v2/folders")
+def create_folder(payload: FolderRequest):
+    """
+    Creates a new folder in the dynamic graph.
+    """
+    folder_id = weaver.create_folder(payload.name, payload.parent_id)
+    return {"status": "success", "folder_id": folder_id}
+
+@app.get("/api/v2/file-tree")
+def get_file_tree():
+    """
+    Returns the hierarchical file tree (Folders & Files).
+    """
+    return weaver.get_file_tree()
 
 @app.get("/api/v2/thumbnails/{filename}")
 async def get_thumbnail(filename: str):
@@ -595,7 +629,7 @@ def create_edge(payload: EdgeRequest):
     """
     Manually creates a justified edge between nodes.
     """
-    success = weaver.add_edge(payload.source, payload.target, payload.justification)
+    success = weaver.add_edge(payload.source, payload.target, payload.justification, type=payload.type)
     if not success:
         raise HTTPException(status_code=400, detail="One or both nodes not found, or hierarchy violation.")
     return {"status": "success", "message": "Edge created"}
@@ -807,6 +841,9 @@ async def update_node(
     thumbnail: UploadFile = File(None),
     title: Optional[str] = Form(None),
     summary: Optional[str] = Form(None),
+    style: Optional[str] = Form(None),
+    parent_id: Optional[str] = Form(None),
+    # Legacy fields (optional)
     module: Optional[str] = Form(None),
     main_topic: Optional[str] = Form(None),
     node_type: Optional[str] = Form(None),
@@ -873,6 +910,36 @@ async def update_node(
         updates["tags"] = [t.strip() for t in tags.split(',') if t.strip()]
     if content is not None:
         updates["content"] = content
+    if style is not None:
+        updates["style"] = style
+    
+    # Handle Parent ID Change (Folder Reparenting)
+    if parent_id is not None:
+        # Check if parent changed
+        current_data = weaver.graph.nodes[node_id]
+        # Logic to find current parent would be complex to query every time, 
+        # but for now we just add the new edge. 
+        # Ideally we remove old 'contains' edges first.
+        try:
+            # Remove old parent links
+            in_edges = list(weaver.graph.in_edges(node_id, data=True))
+            for u, v, d in in_edges:
+                if d.get("type") == "contains":
+                    weaver.graph.remove_edge(u, v)
+            
+            # Add new parent link
+            if parent_id and parent_id.strip() != "":
+                if weaver.graph.has_node(parent_id):
+                    weaver.graph.add_edge(parent_id, node_id, type="contains", weight=1.0)
+                    updates["parent_id"] = parent_id # Store for reference
+                else:
+                    logger.warning(f"Parent node {parent_id} not found.")
+            else:
+                 # If empty, it's now root
+                 updates["parent_id"] = ""
+
+        except Exception as e:
+            logger.error(f"Failed to update parent folder: {e}")
     
     # Update node
     if updates:

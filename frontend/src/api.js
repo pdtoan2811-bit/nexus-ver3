@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:8000/api/v2';
+const API_BASE_URL = 'http://localhost:8002/api/v2';
 
 // --- Canvas Management ---
 export const getCanvases = async () => {
@@ -44,21 +44,20 @@ export const updateSettings = async (updates) => {
     return response.data;
 };
 
-export const ingestText = async (content, module = "General", mainTopic = "Uncategorized") => {
-    const response = await axios.post(`${API_BASE_URL}/ingest/text`, { 
-        content, 
-        module,
-        main_topic: mainTopic 
+export const ingestText = async (content, folder = "", parentId = null) => {
+    const response = await axios.post(`${API_BASE_URL}/ingest/text`, {
+        content,
+        folder,
+        parent_id: parentId
     });
     return response.data;
 };
 
-export const uploadDocument = async (file, module = "General", mainTopic = "Uncategorized") => {
+export const uploadDocument = async (file, folder = "") => {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('module', module);
-    formData.append('main_topic', mainTopic);
-    
+    formData.append('folder', folder);
+
     const response = await axios.post(`${API_BASE_URL}/ingest/upload`, formData, {
         headers: {
             'Content-Type': 'multipart/form-data',
@@ -67,12 +66,11 @@ export const uploadDocument = async (file, module = "General", mainTopic = "Unca
     return response.data;
 };
 
-export const uploadImage = async (file, module = "General", mainTopic = "Uncategorized") => {
+export const uploadImage = async (file, folder = "") => {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('module', module);
-    formData.append('main_topic', mainTopic);
-    
+    formData.append('folder', folder);
+
     const response = await axios.post(`${API_BASE_URL}/ingest/image`, formData, {
         headers: {
             'Content-Type': 'multipart/form-data',
@@ -81,11 +79,12 @@ export const uploadImage = async (file, module = "General", mainTopic = "Uncateg
     return response.data;
 };
 
-export const createEdge = async (source, target, justification) => {
+export const createEdge = async (source, target, justification, type = "reference") => {
     const response = await axios.post(`${API_BASE_URL}/ingest/edge`, {
         source,
         target,
-        justification
+        justification,
+        type
     });
     return response.data;
 };
@@ -137,12 +136,12 @@ export const deleteNode = async (nodeId) => {
 
 export const updateNode = async (nodeId, updates, thumbnailFile = null) => {
     const formData = new FormData();
-    
+
     // Always use FormData to support both file and regular updates
     if (thumbnailFile) {
         formData.append('thumbnail', thumbnailFile);
     }
-    
+
     // Append all other updates
     if (updates) {
         Object.keys(updates).forEach(key => {
@@ -159,7 +158,7 @@ export const updateNode = async (nodeId, updates, thumbnailFile = null) => {
             }
         });
     }
-    
+
     const response = await axios.put(`${API_BASE_URL}/nodes/${nodeId}`, formData, {
         headers: {
             'Content-Type': 'multipart/form-data',
@@ -193,12 +192,12 @@ export const exportCanvas = async () => {
     const response = await axios.get(`${API_BASE_URL}/export`, {
         responseType: 'blob'
     });
-    
+
     // Create download link
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement('a');
     link.href = url;
-    
+
     // Get filename from Content-Disposition header or use default
     const contentDisposition = response.headers['content-disposition'];
     let filename = 'nexus_backup.zip';
@@ -208,17 +207,49 @@ export const exportCanvas = async () => {
             filename = filenameMatch[1];
         }
     }
-    
+
     link.setAttribute('download', filename);
     document.body.appendChild(link);
     link.click();
     link.remove();
     window.URL.revokeObjectURL(url);
-    
+
     return { status: 'success', message: 'Export downloaded' };
 };
 
 export const updateNodePositions = async (positions) => {
     const response = await axios.post(`${API_BASE_URL}/nodes/positions`, positions);
+    return response.data;
+};
+
+// --- Prompt Management ---
+export const getPrompts = async () => {
+    try {
+        const response = await axios.get(`${API_BASE_URL}/prompts`);
+        return response.data;
+    } catch (error) {
+        console.error("API call getPrompts failed", error);
+        throw error;
+    }
+};
+
+export const updatePrompt = async (key, value) => {
+    try {
+        const response = await axios.post(`${API_BASE_URL}/prompts/${key}`, { value });
+        return response.data;
+    } catch (error) {
+        console.error("API call updatePrompt failed", error);
+        throw error;
+    }
+};
+
+// --- File System (Obsidian-like) ---
+export const createFolder = async (name, parentId = null) => {
+    const response = await axios.post(`${API_BASE_URL}/folders`, { name, parent_id: parentId });
+    return response.data;
+};
+
+export const getFileTree = async () => {
+    const response = await axios.get(`${API_BASE_URL}/file-tree`);
     return response.data;
 };

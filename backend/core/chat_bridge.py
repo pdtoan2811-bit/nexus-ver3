@@ -89,28 +89,25 @@ class ChatBridge:
 
     async def extract_metadata(self, content: str) -> Dict[str, Any]:
         """
-        Uses Gemini to extract title, summary, module, and topics.
-        Consults the ContextRegistry for two-way interaction.
+        Uses Gemini to extract title, summary, and folder path.
         """
         if not self.model:
             return {
                 "title": "Unknown Title", 
                 "summary": "LLM Unavailable", 
                 "tags": [],
-                "module": "General",
-                "main_topic": "Uncategorized"
+                "folder": "General"
             }
 
-        # Get Registry Context
-        registry_summary = self.weaver.registry.get_structure_summary()
-
+        # Get existing file tree structure for context
+        # We can get a simplified view of just folders ideally, 
+        # but for now let's just ask LLM to infer from content or standard patterns.
+        # We won't dump the whole tree if it's huge, but providing top-level folders helps.
+        
         prompt = f"""
         You are Nexus, an AI Knowledge Weaver. Analyze the following document and extract structured metadata.
         
-        You have access to the Current Context Registry (Topics & Modules). 
-        Your goal is to fit this content into the existing structure OR propose new structure if it genuinely doesn't fit.
-
-        {registry_summary}
+        Goal: Organize this content into a Logical Folder Structure (e.g., "Work/Projects/Alpha" or "Personal/Health").
 
         Input Text:
         {content[:4000]}... (truncated)
@@ -118,19 +115,17 @@ class ChatBridge:
         Requirements:
         1. Title: Concise and descriptive.
         2. Summary: One sentence explaining the core value/issue.
-        3. Module: Must be an existing Module from Registry, OR a proposed new one.
-        4. Main Topic: Must be an existing Topic from Registry, OR a proposed new one.
-        5. Tags: List of specific keywords.
+        3. Folder: A logical path for this file. Use forward slashes. 
+           - Examples: "Projects/Backend", "Resources/Books", "Personal/Ideas".
+           - Avoid shallow folders like "General" if possible.
+        4. Tags: List of specific keywords.
 
         Output JSON:
         {{
             "title": "String",
             "summary": "String",
-            "module": "String (Existing or New)",
-            "main_topic": "String (Existing or New)",
-            "tags": ["String"],
-            "proposed_new_topic": {{ "name": "New Topic Name", "description": "Why needed" }} (Optional, null if using existing),
-            "proposed_new_module": {{ "topic": "Topic Name", "name": "New Module Name", "description": "Why needed" }} (Optional, null if using existing)
+            "folder": "String (Path)",
+            "tags": ["String"]
         }}
         """
         
@@ -214,15 +209,13 @@ class ChatBridge:
             logger.info(f"Image prepared for Gemini. Size: {len(image_bytes_final)} bytes, MIME: {mime_type}")
             
             # Get Registry Context
-            registry_summary = self.weaver.registry.get_structure_summary()
+            # Get Registry Context (Deprecated for Images, we use Folder Paths now)
+            # registry_summary = self.weaver.registry.get_structure_summary()
             
             prompt = f"""
             You are Nexus, an AI Knowledge Weaver. Analyze this image as if it were an article or document.
             
-            You have access to the Current Context Registry (Topics & Modules).
-            Your goal is to extract all meaningful content from this image and fit it into the existing structure OR propose new structure if needed.
-            
-            {registry_summary}
+            Goal: Organize this content into a Logical Folder Structure (e.g., "Work/Projects/Alpha" or "Personal/Health").
             
             Instructions:
             1. Extract ALL text visible in the image (OCR).
@@ -232,8 +225,7 @@ class ChatBridge:
                - Title: What is this image/article about?
                - Summary: One sentence explaining the core value/issue.
                - Content: Full text content extracted from the image, formatted as a readable article.
-               - Module: Must be an existing Module from Registry, OR a proposed new one.
-               - Main Topic: Must be an existing Topic from Registry, OR a proposed new one.
+               - Folder: A logical path for this file. Use forward slashes.
                - Tags: List of specific keywords from the content.
             
             Output JSON:
@@ -241,11 +233,8 @@ class ChatBridge:
                 "title": "String (descriptive title of the image content)",
                 "summary": "String (one sentence summary)",
                 "content": "String (full extracted text content, formatted as article)",
-                "module": "String (Existing or New)",
-                "main_topic": "String (Existing or New)",
-                "tags": ["String"],
-                "proposed_new_topic": {{ "name": "New Topic Name", "description": "Why needed" }} (Optional, null if using existing),
-                "proposed_new_module": {{ "topic": "Topic Name", "name": "New Module Name", "description": "Why needed" }} (Optional, null if using existing)
+                "folder": "String (Path)",
+                "tags": ["String"]
             }}
             """
             

@@ -1,0 +1,53 @@
+Ingest started: content=Opinion A
+Preprocessing done. Extracting metadata...
+Metadata extracted: {'title': 'Opinion A', 'summary': "A truncated document presenting an opinion on an unspecified topic identified as 'A'.", 'folder': 'Ideas/Opinions', 'tags': ['opinion', 'topic A', 'thought']}
+Ensuring folder path: SemanticTest
+ERROR: name 'uuid4' is not defined
+Ingest started: content=Opinion A
+Preprocessing done. Extracting metadata...
+Metadata extracted: {}
+Ensuring folder path: SemanticTest
+ERROR: name 'uuid4' is not defined
+Ingest started: content=Opinion A
+Preprocessing done. Extracting metadata...
+Metadata extracted: {'title': 'Opinion A Fragment', 'summary': "This document contains a truncated fragment of an opinion labeled 'A', precluding a full summary of its core value or issue.", 'folder': 'Drafts/Fragments', 'tags': ['opinion', 'fragment', 'truncated', 'incomplete', 'document']}
+Ensuring folder path: SemanticTest
+Parent ID: FOLDER_42a959db
+Adding document node: OPINION_A_FRAGMENT_dea9
+Ingest started: content=Opinion B
+Preprocessing done. Extracting metadata...
+Metadata extracted: {'title': 'Incomplete Document Content', 'summary': 'The provided input text is severely truncated, preventing comprehensive analysis and extraction of specific metadata.', 'folder': 'System_Errors/Truncated_Input', 'tags': ['truncated', 'incomplete_data', 'requires_more_input', 'analysis_limitation']}
+Ensuring folder path: SemanticTest
+Parent ID: FOLDER_42a959db
+Adding document node: INCOMPLETE_DOCUMENT__7e04
+Ingest started: content=Counterpoint C
+Preprocessing done. Extracting metadata...
+Metadata extracted: {'title': 'Musical Fragment: Counterpoint C', 'summary': 'This document is a truncated musical snippet, likely concerning a counterpoint exercise or composition in the key of C.', 'folder': 'Music/Theory', 'tags': ['Music', 'Counterpoint', 'Composition', 'Theory', 'C Key', 'Fragment']}
+Ensuring folder path: SemanticTest
+Parent ID: FOLDER_42a959db
+Adding document node: MUSICAL_FRAGMENT:_CO_4c5f
+ERROR: 'charmap' codec can't encode character '\u1ea5' in position 26: character maps to <undefined>
+Ingest started: content=https://www.sapo.vn/
+Preprocessing done. Extracting metadata...
+Metadata extracted: {'title': 'Sapo - Omnichannel Sales & Business Management Platform', 'summary': "Sapo is Vietnam's leading omnichannel sales management platform, offering comprehensive solutions for retail, e-commerce, social commerce, website sales, inventory, customer, employee management, accounting, e-invoicing, and specialized services for hospitality businesses.", 'folder': 'Business/SaaS/OmnichannelRetail/Sapo', 'tags': ['Sapo', 'Omnichannel', 'Sales Management', 'E-commerce', 'Retail', 'POS', 'Restaurant Management', 'Inventory Management', 'CRM', 'Accounting Software', 'E-invoicing', 'Logistics', 'Payment Processing', 'Business Loans', 'SaaS', 'Vietnam']}
+Ensuring folder path: Inbox
+Parent ID: FOLDER_cf263867
+ERROR: 'charmap' codec can't encode character '\u1ec0' in position 23: character maps to <undefined>
+Ingest started: content=Concept Alpha
+Preprocessing done. Extracting metadata...
+Metadata extracted: {'title': 'Concept Alpha', 'summary': 'An early-stage idea or preliminary proposal known as Concept Alpha, awaiting further development or exploration.', 'folder': 'Projects/Concepts', 'tags': ['concept', 'alpha', 'idea', 'project proposal', 'early-stage', 'innovation']}
+Ensuring folder path: Inbox
+Parent ID: FOLDER_cf263867
+Adding document node: CONCEPT_ALPHA_3560
+Ingest started: content=Concept Alpha
+Preprocessing done. Extracting metadata...
+Metadata extracted: {'title': 'Concept Alpha', 'summary': 'This document outlines an initial, partially described concept named Alpha, representing an early-stage idea or project component.', 'folder': 'Projects/Concepts/Initiation', 'tags': ['Concept', 'Alpha', 'Idea', 'Draft', 'Initiation', 'Project Planning']}
+Ensuring folder path: Inbox
+Parent ID: FOLDER_cf263867
+Adding document node: CONCEPT_ALPHA_9c1b
+Ingest started: content=Concept Beta
+Preprocessing done. Extracting metadata...
+Metadata extracted: {'title': 'Concept Beta', 'summary': 'An early-stage concept or idea, likely under initial review or development, with details yet to be fully defined.', 'folder': 'Projects/Concepts', 'tags': ['Concept', 'Beta', 'Project Idea', 'Early Stage', 'Development', 'Innovation']}
+Ensuring folder path: Inbox
+Parent ID: FOLDER_cf263867
+Adding document node: CONCEPT_BETA_23c7

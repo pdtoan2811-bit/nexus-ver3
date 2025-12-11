@@ -11,6 +11,7 @@ const CustomEdge = ({
   targetPosition,
   label,
   selected,
+  data
 }) => {
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -21,20 +22,81 @@ const CustomEdge = ({
     targetY,
   });
 
+  // Determine Style based on Edge Type
+  const edgeType = selected ? 'selected' : (data?.type || 'reference');
+
+  /* 
+     ANIMATIONS defined inline for now, or ensure they are in global CSS. 
+     We will use style tags for uniqueness if needed, but standard CSS class is better.
+     Assuming 'animate-flow' is added to index.css
+  */
+
+  const getStrokeStyle = () => {
+    switch (edgeType) {
+      case 'selected': return '#3b82f6'; // Blue
+      case 'contains': return '#F59E0B'; // Gold/Amber-500
+      case 'agree': return '#10B981';    // Emerald-500
+      case 'disagree': return '#EF4444'; // Red-500
+      case 'mutual': return '#8B5CF6';   // Violet-500 for mutual
+      default: return '#4b5563';         // Gray-600
+    }
+  };
+
+  const getStrokeWidth = () => {
+    if (selected) return 3;
+    if (edgeType === 'contains') return 2.5; // Thicker for hierarchy
+    if (edgeType === 'agree') return 2;
+    return 1.5;
+  };
+
+  const getStrokeDasharray = () => {
+    if (edgeType === 'disagree') return '5,5'; // Dashed for disagreement
+    if (edgeType === 'contains') return '10,5'; // Dashed for flow animation
+    if (edgeType === 'mutual') return '10,2';  // Dotted
+    return '0';
+  };
+
+  // Dynamic animation style
+  const animationStyle = {};
+  if (edgeType === 'contains') {
+    animationStyle.animation = 'dash-flow 1s linear infinite';
+  } else if (edgeType === 'agree') {
+    // Pulse effect could be done via filter or width, but simple dash flow is clearer for 'flow'
+    // Let's make agree a slower, smooth flow or static glow
+    animationStyle.filter = 'drop-shadow(0 0 2px #10B981)';
+  } else if (edgeType === 'mutual') {
+    animationStyle.animation = 'dash-flow-reverse 2s linear infinite';
+  }
+
   return (
     <>
-      <BaseEdge 
-        path={edgePath} 
-        id={id} 
+      {/* Glow Effect for electricity/agree */}
+      {(edgeType === 'contains' || edgeType === 'agree') && (
+        <BaseEdge
+          path={edgePath}
+          style={{
+            stroke: getStrokeStyle(),
+            strokeWidth: getStrokeWidth() + 4,
+            opacity: 0.1,
+            filter: 'blur(4px)',
+          }}
+        />
+      )}
+
+      <BaseEdge
+        path={edgePath}
+        id={id}
         style={{
-            stroke: selected ? '#3b82f6' : '#4b5563', // Blue when selected, Gray otherwise
-            strokeWidth: selected ? 2 : 1,
-            opacity: selected ? 1 : 0.4,
-            transition: 'all 0.3s ease'
+          stroke: getStrokeStyle(),
+          strokeWidth: getStrokeWidth(),
+          strokeDasharray: getStrokeDasharray(),
+          opacity: (selected || edgeType !== 'reference') ? 1 : 0.4,
+          transition: 'stroke 0.3s ease, stroke-width 0.3s ease',
+          ...animationStyle
         }}
       />
-      
-      {/* Edge Label - Only show when selected/hovered (handled by group logic in parent usually, but here explicit selected prop) */}
+
+      {/* Edge Label */}
       {(selected || label) && (
         <EdgeLabelRenderer>
           <div
@@ -46,15 +108,17 @@ const CustomEdge = ({
             className={`
                 px-3 py-1.5 
                 rounded-full 
-                bg-black/80 backdrop-blur-md 
+                bg-black/90 backdrop-blur-md 
                 border border-white/10 
-                text-[10px] text-gray-300 font-medium 
+                text-[10px] font-bold 
                 shadow-lg
                 transition-all duration-300
-                ${selected ? 'opacity-100 scale-100' : 'opacity-0 scale-90 hover:opacity-100 hover:scale-100'}
+                ${selected ? 'opacity-100 scale-100 z-50' : 'opacity-0 scale-90 hover:opacity-100 hover:scale-100'}
             `}
           >
-            {label}
+            <span style={{ color: getStrokeStyle() }}>
+              {label}
+            </span>
           </div>
         </EdgeLabelRenderer>
       )}
