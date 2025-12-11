@@ -469,12 +469,15 @@ function App() {
     });
   }, []);
 
-  const handleEdgeConfirm = async (justification) => {
-    const { source, target } = edgeModalState;
+  const handleEdgeConfirm = async (justification, type, newSource, newTarget) => {
+    // defaults to state if not passed, but modal now passes effective values
+    const source = newSource || edgeModalState.source;
+    const target = newTarget || edgeModalState.target;
+
     if (!source || !target) return;
 
     try {
-      await createEdge(source, target, justification);
+      await createEdge(source, target, justification, type);
       setEdgeModalState({ isOpen: false, source: null, target: null });
       refreshSystem();
     } catch (error) {

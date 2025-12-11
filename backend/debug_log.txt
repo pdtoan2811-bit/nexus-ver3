@@ -51,3 +51,58 @@ Metadata extracted: {'title': 'Concept Beta', 'summary': 'An early-stage concept
 Ensuring folder path: Inbox
 Parent ID: FOLDER_cf263867
 Adding document node: CONCEPT_BETA_23c7
+ERROR: 'charmap' codec can't encode character '\u1ea7' in position 29: character maps to <undefined>
+ERROR: 'charmap' codec can't encode character '\u1ebf' in position 43: character maps to <undefined>
+ERROR: 'charmap' codec can't encode character '\u1ea7' in position 29: character maps to <undefined>
+ERROR: 'charmap' codec can't encode character '\u1ea7' in position 29: character maps to <undefined>
+ERROR: 'charmap' codec can't encode character '\u1ea7' in position 29: character maps to <undefined>
+ERROR: 'charmap' codec can't encode character '\u1ea7' in position 29: character maps to <undefined>
+ERROR: 'charmap' codec can't encode character '\u1ebf' in position 43: character maps to <undefined>
+ERROR: 'charmap' codec can't encode character '\u1ea7' in position 29: character maps to <undefined>
+ERROR: 'charmap' codec can't encode character '\u1ebf' in position 43: character maps to <undefined>
+ERROR: 'charmap' codec can't encode character '\u1ea7' in position 29: character maps to <undefined>
+ERROR: 'charmap' codec can't encode character '\u1ebf' in position 43: character maps to <undefined>
+Ingest started: content=Testing Unicode: Tiếng Việt, Español, 🚀 Rocket
+Preprocessing done. Extracting metadata...
+Metadata extracted: {'title': 'Unicode Character Testing', 'summary': 'This document contains examples of Unicode characters, including multilingual text and symbols, likely for testing purposes.', 'folder': 'Technical/Testing/Unicode', 'tags': ['Unicode', 'testing', 'multilingual', 'internationalization', 'characters', 'symbols', 'Tiếng Việt', 'Español']}
+Ensuring folder path: Inbox
+Parent ID: FOLDER_51e1d166
+Adding document node: UNICODE_CHARACTER_TE_ea02
+Ingest started: content=Dear team,
+
+Nhờ team check giúp em file nhập sản p
+Preprocessing done. Extracting metadata...
+Metadata extracted: {'title': 'V3 Product Data Upload Issue', 'summary': 'A user reported a partial success in uploading product conversion data to the V3 system, suspecting a row limit due to undisplayed errors for failed items.', 'folder': 'Operations/V3/Data Import Issues', 'tags': ['V3', 'Product Data', 'Data Import', 'Upload Error', 'Row Limit', 'SKU', 'System Issue']}
+Ensuring folder path: Inbox
+Parent ID: FOLDER_b2fa2b6a
+Adding document node: V3_PRODUCT_DATA_UPLO_8aef
+Ingest started: content=Dear team,
+
+Nhờ team check giúp em file nhập sản p
+Preprocessing done. Extracting metadata...
+Metadata extracted: {'title': 'V3 Product Conversion Import Issue', 'summary': 'A user reports an intermittent issue with product conversion file uploads on the V3 system, where only a partial set of SKUs are processed successfully on the first attempt, suggesting a potential row limit.', 'folder': 'Support/V3_Data_Import', 'tags': ['V3', 'Product Import', 'SKU', 'File Upload', 'Error', 'System Issue', 'Data Conversion', 'Support Request']}
+Ensuring folder path: Inbox
+Parent ID: FOLDER_086c6001
+Adding document node: V3_PRODUCT_CONVERSIO_124c
+Ingest started: content="Dear team
+
+Mình có thắc mắc sao tính năng số thập
+Preprocessing done. Extracting metadata...
+Metadata extracted: {'title': 'Missing Decimal Support in Product Combos (v3)', 'summary': 'A user reports that the current version (v3) lacks decimal support when adding products to combos, critically impacting accurate inventory deduction for businesses, particularly those weighing goods like fruits, and urges for a quick resolution to match competitor functionality.', 'folder': 'Product/FeatureRequests/ComboManagement', 'tags': ['decimal support', 'product combo', 'inventory management', 'feature request', 'v3', 'e-commerce', 'bug report', 'product management']}
+Ensuring folder path: Inbox
+Parent ID: FOLDER_086c6001
+Adding document node: MISSING_DECIMAL_SUPP_ae66
+Ingest started: content="Dear bộ phận KT
+
+Phiền KT kiểm tra hiện KH đang b
+Preprocessing done. Extracting metadata...
+Metadata extracted: {'title': 'Richi House E-commerce: Shopping Cart Product Variant Display Issue', 'summary': "A user reported that the Richi House e-commerce platform's shopping cart only displays one product variant, such as 'combo 36 thùng' for RICO wet wipes, while other existing variants are missing from the cart view.", 'folder': 'Support/RichiHouse/BugReports/ShoppingCart', 'tags': ['e-commerce', 'bug report', 'shopping cart', 'product variant', 'Richi House', 'Sapogo', 'display issue', 'technical support']}
+Ensuring folder path: Inbox
+Parent ID: FOLDER_086c6001
+Adding document node: RICHI_HOUSE_E-COMMER_d5c8
+Ingest started: content=Yêu cầu cải tiến Sản phẩm combo và sản phẩm quy đổ
+Preprocessing done. Extracting metadata...
+Metadata extracted: {'title': 'Yêu cầu Cải tiến Sản phẩm Combo và Quy đổi', 'summary': "This document outlines a request for enhancements and improvements concerning the company's combo and convertible product lines.", 'folder': 'Product Management/Improvement Requests', 'tags': ['Product Improvement', 'Combo Products', 'Convertible Products', 'Product Enhancement', 'Request', 'Sản phẩm combo', 'Sản phẩm quy đổi', 'Cải tiến']}
+Ensuring folder path: Product Management/Improvement Requests
+Parent ID: FOLDER_2475451b
+Adding document node: YÊU_CẦU_CẢI_TIẾN_SẢN_bbfe

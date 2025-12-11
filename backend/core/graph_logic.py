@@ -62,7 +62,7 @@ class SettingsRegistry:
 
     def _save_settings(self, data: Dict[str, Any]):
         try:
-            with open(SETTINGS_FILE, 'w') as f:
+            with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2)
             logger.info("Settings saved.")
         except Exception as e:
@@ -88,7 +88,7 @@ class CanvasRegistry:
     def _load_index(self) -> Dict[str, Any]:
         if os.path.exists(CANVAS_INDEX_FILE):
             try:
-                with open(CANVAS_INDEX_FILE, 'r') as f:
+                with open(CANVAS_INDEX_FILE, 'r', encoding='utf-8') as f:
                     return json.load(f)
             except Exception as e:
                 logger.error(f"Failed to load canvas index: {e}")
@@ -108,7 +108,7 @@ class CanvasRegistry:
         return default_index
 
     def _save_index(self, data: Dict[str, Any]):
-        with open(CANVAS_INDEX_FILE, 'w') as f:
+        with open(CANVAS_INDEX_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
 
     def list_canvases(self) -> List[Dict[str, Any]]:
@@ -307,7 +307,7 @@ class Weaver:
     def _load_graph_file(self):
         if os.path.exists(self.graph_file):
             try:
-                with open(self.graph_file, 'r') as f:
+                with open(self.graph_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 return nx.node_link_graph(data)
             except Exception as e:
@@ -319,11 +319,11 @@ class Weaver:
         if self.active_canvas_id == "default" and os.path.exists(legacy_path):
              logger.info("Migrating legacy graph to default canvas...")
              try:
-                 with open(legacy_path, 'r') as f:
+                 with open(legacy_path, 'r', encoding='utf-8') as f:
                      data = json.load(f)
                  g = nx.node_link_graph(data)
                  data_export = nx.node_link_data(g)
-                 with open(self.graph_file, 'w') as f:
+                 with open(self.graph_file, 'w', encoding='utf-8') as f:
                      json.dump(data_export, f, indent=2)
                  return g
              except Exception as e:
@@ -335,7 +335,7 @@ class Weaver:
         """Persists the current graph state to disk."""
         data = nx.node_link_data(self.graph)
         try:
-            with open(self.graph_file, 'w') as f:
+            with open(self.graph_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2)
             logger.info(f"Graph saved to {self.graph_file}")
             # Update canvas last_modified timestamp
@@ -393,7 +393,7 @@ class Weaver:
         """Loads chat history from disk."""
         if os.path.exists(self.chat_file):
             try:
-                with open(self.chat_file, 'r') as f:
+                with open(self.chat_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
             except Exception as e:
                 logger.error(f"Failed to load chat history: {e}")
@@ -402,7 +402,7 @@ class Weaver:
     def save_chat_history(self, history: List[Dict]):
         """Saves chat history to disk."""
         try:
-            with open(self.chat_file, 'w') as f:
+            with open(self.chat_file, 'w', encoding='utf-8') as f:
                 json.dump(history, f, indent=2)
             # logger.info("Chat history saved.") 
         except Exception as e:
@@ -554,8 +554,9 @@ class Weaver:
         """
         tree = []
         
-        # 1. Identify all Folder and Document nodes
-        relevant_nodes = [n for n, d in self.graph.nodes(data=True) if d.get("type") in ["folder", "document"]]
+        # 1. Identify all Folder and Document nodes (and Images, Notes, etc)
+        # We want to show EVERYTHING in the file explorer unless it's a hidden system node
+        relevant_nodes = [n for n, d in self.graph.nodes(data=True) if d.get("type") != "system"]
         
         # 2. Build adjacency list for 'contains' edges only
         children_map = {n: [] for n in relevant_nodes}
@@ -619,21 +620,78 @@ class Weaver:
             
         return tree
 
+    def validate_connection(self, source: str, target: str, type: str) -> None:
+        """
+        Validates if a connection is logically sound.
+        Raises ValueError if invalid.
+        """
+        if not self.graph.has_node(source) or not self.graph.has_node(target):
+            raise ValueError("Source or Target node does not exist.")
+            
+        if source == target:
+            raise ValueError("Self-loops are not allowed.")
+
+        # Hierarchy Rules (for 'contains' edges)
+        if type == "contains":
+            # Rule 1: Source must be a Folder (or we allow Documents to contain Sub-Docs?)
+            # Strictly speaking, only Folders should 'contain' things for the File Explorer to work effectively.
+            # But let's check types.
+            source_type = self.graph.nodes[source].get("type")
+            target_type = self.graph.nodes[target].get("type")
+            
+            if source_type not in ["folder", "document"]:
+                # Only folders and docs can contain things. Images cannot.
+                raise ValueError(f"Node type '{source_type}' cannot contain other nodes.")
+                
+            if target_type == "folder" and source_type == "document":
+                 # A Document containing a Folder is confusing.
+                 raise ValueError("Documents cannot contain Folders.")
+
+            # Rule 2: Cycle Detection
+            # If path target -> source exists, adding source -> target creates a cycle.
+            try:
+                if nx.has_path(self.graph, target, source):
+                    raise ValueError("Cycle detected: Adding this edge would create a loop in the hierarchy.")
+            except nx.NetworkXError:
+                pass # Nodes not in graph? Handled above.
+
     def add_edge(self, source: str, target: str, justification: str, confidence: float = 1.0, type: str = "reference") -> bool:
         """
-        Adds a justified edge between nodes.
-        Strict Hierarchy is DEPRECATED. Now we allow flexible connections.
+        Adds a justified edge between nodes with validation.
         """
         if self.graph.has_node(source) and self.graph.has_node(target):
-            # Dynamic: No more strict level checks. 
+            try:
+                self.validate_connection(source, target, type)
+            except ValueError as e:
+                logger.error(f"Edge creation rejected: {e}")
+                # We return False to indicate failure, or raise? 
+                # Existing code expects bool. 
+                # Let's log it. Ideally we propagate the error message.
+                # For now, let's allow "reference" types always, but block "contains"
+                if type == "contains":
+                    # If it's a critical hierarchy violation, we MUST fail.
+                    return False
+            
             self.graph.add_edge(source, target, justification=justification, confidence=confidence, type=type)
             self.save_graph()
             return True
         return False
 
     def delete_node(self, node_id: str) -> bool:
-        """Deletes a node and its edges."""
+        """
+        Deletes a node. 
+        If it's a folder, 'releases' children (removes their parent link) 
+        so they become root nodes instead of being deleted or hidden.
+        """
         if self.graph.has_node(node_id):
+            # If folder, explicitly remove outgoing 'contains' edges (which define children)
+            # Actually, we need to find OUTGOING contains edges from this folder (Folder -> Child)
+            if self.graph.nodes[node_id].get("type") == "folder":
+                out_edges = list(self.graph.out_edges(node_id, data=True))
+                for u, v, d in out_edges:
+                    if d.get("type") == "contains":
+                        self.graph.remove_edge(u, v)
+
             self.graph.remove_node(node_id)
             self.save_graph()
             return True

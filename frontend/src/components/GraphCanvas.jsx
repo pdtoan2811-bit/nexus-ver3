@@ -13,7 +13,7 @@ import ReactFlow, {
   ConnectionLineType
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { createEdge, ingestText, getContext, uploadImage, updateNodePositions } from '../api';
+import { createEdge, ingestText, getContext, uploadImage, updateNodePositions, deleteNode } from '../api';
 import { getLayoutedElements } from '../utils/layout';
 import { Layout } from 'lucide-react';
 import CustomNode from './CustomNode';
@@ -171,6 +171,30 @@ const GraphCanvasContent = ({
           console.error("Paste ingestion failed:", err);
           alert(`Failed to ingest content: ${err.message}`);
           setNodes((nds) => nds.filter(n => n.id !== 'processing...'));
+        }
+      } else {
+        // Handle Plain Text Paste
+        e.preventDefault();
+        const truncatedLabel = text.length > 20 ? text.substring(0, 20) + '...' : text;
+        const loadingNode = {
+          id: 'processing-text',
+          type: 'document',
+          data: { label: `Ingesting: "${truncatedLabel}"`, module: 'Ingestion', status: 'loading' },
+          position: reactFlowInstance.project({ x: window.innerWidth / 2, y: window.innerHeight / 2 }),
+          style: { opacity: 0.8 }
+        };
+
+        setNodes((nds) => nds.concat(loadingNode));
+
+        try {
+          // Ingest as plain text
+          await ingestText(text, "Inbox");
+          if (onRefresh) onRefresh();
+        } catch (err) {
+          console.error("Paste ingestion failed:", err);
+          // Don't alert for short text to avoid annoyance, only if it seemed intentional
+          if (text.length > 5) alert(`Failed to ingest text: ${err.message}`);
+          setNodes((nds) => nds.filter(n => n.id !== 'processing-text'));
         }
       }
     };
@@ -347,6 +371,19 @@ const GraphCanvasContent = ({
     }
   }, [onNodesChange, savePositions, setNodes]);
 
+  const handleNodesDelete = useCallback(async (deletedNodes) => {
+    // Optimistic update handled by React Flow for UI, but we need backend sync
+    for (const node of deletedNodes) {
+      try {
+        await deleteNode(node.id);
+      } catch (e) {
+        console.error(`Failed to delete node ${node.id}:`, e);
+      }
+    }
+    // Refresh global state (File Explorer etc)
+    if (onRefresh) onRefresh();
+  }, [onRefresh]);
+
   const handleLayout = useCallback(() => {
     // Apply layout to all nodes
     const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
@@ -413,6 +450,7 @@ const GraphCanvasContent = ({
         nodes={nodes}
         edges={edges}
         onNodesChange={handleNodesChange}
+        onNodesDelete={handleNodesDelete}
         onEdgesChange={onEdgesChange}
         onSelectionChange={onSelectionChangeCallback}
         onEdgeClick={onEdgeClick}

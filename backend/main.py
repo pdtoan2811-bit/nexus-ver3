@@ -14,6 +14,12 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv(override=True)
 
+import sys
+import io
+# FORCE UTF-8 for stdout/stderr to prevent Windows cp1252 crashes
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
 from core.graph_logic import Weaver
 from core.chat_bridge import ChatBridge
 from core.api_agents import router as agent_router, AgentManager
@@ -303,7 +309,7 @@ async def ingest_text(payload: TextIngestRequest, background_tasks: BackgroundTa
         pass
     
     try:
-        with open("debug_log.txt", "a") as f:
+        with open("debug_log.txt", "a", encoding="utf-8") as f:
             f.write(f"Ingest started: content={content[:50]}\n")
             
         # Check for YouTube URL
@@ -361,13 +367,13 @@ async def ingest_text(payload: TextIngestRequest, background_tasks: BackgroundTa
                 logger.error(f"Video analysis failed: {e}")
                 final_content = f"Source: {content}\n\n(Analysis Failed: {str(e)})"
         
-        with open("debug_log.txt", "a") as f:
+        with open("debug_log.txt", "a", encoding="utf-8") as f:
             f.write("Preprocessing done. Extracting metadata...\n")
 
         # Extract Metadata via AI (Refinement)
         extracted_meta = await chat_bridge.extract_metadata(final_content)
         
-        with open("debug_log.txt", "a") as f:
+        with open("debug_log.txt", "a", encoding="utf-8") as f:
             f.write(f"Metadata extracted: {extracted_meta}\n")
         
         # --- Dynamic Graph: Create Folders ---
@@ -377,10 +383,10 @@ async def ingest_text(payload: TextIngestRequest, background_tasks: BackgroundTa
         if payload.parent_id:
             parent_id = payload.parent_id
         elif folder_path:
-            with open("debug_log.txt", "a") as f:
+            with open("debug_log.txt", "a", encoding="utf-8") as f:
                 f.write(f"Ensuring folder path: {folder_path}\n")
             parent_id = weaver.ensure_folder_path(folder_path)
-            with open("debug_log.txt", "a") as f:
+            with open("debug_log.txt", "a", encoding="utf-8") as f:
                 f.write(f"Parent ID: {parent_id}\n")
         # ---------------------------------------------
         
@@ -409,7 +415,7 @@ async def ingest_text(payload: TextIngestRequest, background_tasks: BackgroundTa
         import uuid
         node_id = f"{base_id}_{uuid.uuid4().hex[:4]}"
         
-        with open("debug_log.txt", "a") as f:
+        with open("debug_log.txt", "a", encoding="utf-8") as f:
             f.write(f"Adding document node: {node_id}\n")
 
         weaver.add_document_node(node_id, final_content, final_meta, parent_id=parent_id)
@@ -421,7 +427,7 @@ async def ingest_text(payload: TextIngestRequest, background_tasks: BackgroundTa
         return {"status": "success", "node_id": node_id, "message": "Content ingested"}
         
     except Exception as e:
-        with open("debug_log.txt", "a") as f:
+        with open("debug_log.txt", "a", encoding="utf-8") as f:
             f.write(f"ERROR: {str(e)}\n")
         logger.error(f"Unexpected Upload Error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

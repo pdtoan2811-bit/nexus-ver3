@@ -7,27 +7,40 @@ const EdgeCreationModal = ({ isOpen, onClose, onConfirm, sourceId, targetId, aut
     const [justification, setJustification] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
 
-    // Auto-generate on open if enabled
+    // Direction Swapping State
+    const [effectiveSource, setEffectiveSource] = useState(sourceId);
+    const [effectiveTarget, setEffectiveTarget] = useState(targetId);
+
+    // Reset state on open
     useEffect(() => {
-        if (isOpen && autoAssistEnabled && sourceId && targetId) {
-            handleAiEnhance();
-        } else {
-            if (!isOpen) {
-                setJustification('');
-                setSelectedType('reference'); // Reset type
+        if (isOpen) {
+            setEffectiveSource(sourceId);
+            setEffectiveTarget(targetId);
+            if (autoAssistEnabled && sourceId && targetId) {
+                handleAiEnhance();
             }
+        } else {
+            setJustification('');
+            setSelectedType('reference');
         }
-    }, [isOpen, autoAssistEnabled, sourceId, targetId]);
+    }, [isOpen, sourceId, targetId]); // Removed autoAssistEnabled from dependency to prevent re-trigger on swap
 
     if (!isOpen) return null;
 
+    const handleSwap = () => {
+        setEffectiveSource(effectiveTarget);
+        setEffectiveTarget(effectiveSource);
+        // Optional: Clear or invalidate justification if it referenced specific nodes?
+        // For now, keep it but maybe flash a warning visually
+    };
+
     const handleAiEnhance = async () => {
-        if (!sourceId || !targetId) return;
+        if (!effectiveSource || !effectiveTarget) return;
 
         setIsGenerating(true);
         try {
             // Use current text as hint
-            const result = await suggestEdgeJustification(sourceId, targetId, justification);
+            const result = await suggestEdgeJustification(effectiveSource, effectiveTarget, justification);
             if (result && result.justification) {
                 setJustification(result.justification);
             }
@@ -40,7 +53,8 @@ const EdgeCreationModal = ({ isOpen, onClose, onConfirm, sourceId, targetId, aut
 
     const handleSubmit = () => {
         if (justification.trim() || selectedType === 'contains') { // Hierarchy can be implicit
-            onConfirm(justification, selectedType);
+            // Pass effective Source/Target
+            onConfirm(justification, selectedType, effectiveSource, effectiveTarget);
             setJustification('');
             setSelectedType('reference');
         } else {
@@ -89,10 +103,19 @@ const EdgeCreationModal = ({ isOpen, onClose, onConfirm, sourceId, targetId, aut
 
                 <div className="p-6 space-y-6">
                     {/* Context Visualization */}
-                    <div className="flex items-center justify-between text-xs text-gray-400 bg-black/40 p-3 rounded-lg border border-white/5 font-mono">
-                        <div className="flex-1 truncate text-center pr-2 text-blue-300" title={sourceId}>{sourceId}</div>
-                        <div className="text-gray-600 font-bold px-2">→</div>
-                        <div className="flex-1 truncate text-center pl-2 text-green-300" title={targetId}>{targetId}</div>
+                    <div className="flex items-center justify-between text-xs text-gray-400 bg-black/40 p-3 rounded-lg border border-white/5 font-mono relative group/swap">
+                        <div className="flex-1 truncate text-center pr-2 text-blue-300 font-bold" title={effectiveSource}>{effectiveSource}</div>
+
+                        {/* Swap Button */}
+                        <button
+                            onClick={handleSwap}
+                            className="bg-gray-800 hover:bg-blue-600 text-gray-400 hover:text-white p-1.5 rounded-full transition-all border border-gray-700 group-hover/swap:border-blue-500/50"
+                            title="Swap Direction"
+                        >
+                            <ArrowLeftRight className="w-4 h-4" />
+                        </button>
+
+                        <div className="flex-1 truncate text-center pl-2 text-green-300 font-bold" title={effectiveTarget}>{effectiveTarget}</div>
                     </div>
 
                     {/* Type Selection Grid */}
